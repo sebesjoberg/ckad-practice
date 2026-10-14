@@ -80,7 +80,7 @@ down() {
     kind delete cluster --name "$name"
     kubectl config delete-context "$name" >/dev/null 2>&1 || true
   done
-  docker rm -f ext-web >/dev/null 2>&1 || true
+  docker rm -f ext-web ext-api >/dev/null 2>&1 || true
 }
 
 setup() {

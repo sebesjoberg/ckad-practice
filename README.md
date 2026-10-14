@@ -8,6 +8,7 @@ Exam-style CKAD scenarios on local kind clusters, graded as strictly as the real
 ./ckad-grade.sh cron-01  # grade it
 ```
 
-Needs docker, kind, kubectl, jq, helm and bash. In Git Bash, run `export MSYS_NO_PATHCONV=1` first.
+Needs docker, kind, kubectl, jq, helm and bash. WSL works best. In Git Bash, run `export MSYS_NO_PATHCONV=1`
+first and give kubectl/helm local files as relative paths (`./file`).
 
 To practise with Claude, give it `ckad-practice.json` and say *"You are my CKAD examiner. Follow tutor_instructions."*
