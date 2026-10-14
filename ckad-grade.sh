@@ -5,6 +5,16 @@ id="${1:?usage: $0 <question-id>|all [json]}"
 json="${2:-$(dirname "$0")/ckad-practice.json}"
 command -v jq >/dev/null || { echo "jq is required"; exit 2; }
 
+# Git Bash rewrites /bin/sh-style arguments into Windows paths before they reach kubectl.exe.
+export MSYS_NO_PATHCONV=1
+
+# Windows builds of jq end lines with CRLF, which breaks the string comparisons in the checks.
+jq() {
+  command jq "$@" | tr -d '\r'
+  return "${PIPESTATUS[0]}"
+}
+export -f jq
+
 limit=""
 if command -v timeout >/dev/null; then
   limit="timeout 60"
@@ -27,8 +37,9 @@ for q in $ids; do
     name=$(jq -r .check <<<"$g")
     cmd=$(jq -r .cmd <<<"$g")
     total=$((total + 1))
-    # stdin from /dev/null: kubectl run -i / exec would otherwise swallow the loop's input
-    if $limit bash -c "$cmd" </dev/null >/dev/null 2>&1; then
+    # pipefail: a failing kubectl must fail the check even when jq/grep after it succeeds.
+    # stdin from /dev/null: kubectl run -i / exec would otherwise swallow the loop's input.
+    if $limit bash -o pipefail -c "$cmd" </dev/null >/dev/null 2>&1; then
       echo "  PASS  $name"
       pass=$((pass + 1))
     else

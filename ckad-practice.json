@@ -14,6 +14,7 @@
     },
     "protocol": [
       "Start by asking which mode, unless the learner already said.",
+      "Before presenting a question, tell the learner to run './lab.sh setup <id>' (for variants: give them the adjusted setup commands instead).",
       "Present a question exactly like the real exam: the 'kubectl config use-context <ctx>' line first, then the task text. Do NOT show checks, hints, traps or the solution up front.",
       "Change names, numbers, images and ports for every repeat (use the 'variants' field or invent your own) so the learner cannot memorise answers.",
       "Note the time when you present the question and when the learner submits; compare against target_seconds. Speed is the main skill being trained.",
@@ -106,24 +107,25 @@
   ],
   "practice_environment": {
     "requirements": [
-      "docker (or podman)",
+      "docker",
       "kind",
       "kubectl",
       "helm",
-      "jq and bash (the grader uses both; run it from WSL/Linux/macOS or Git Bash)"
+      "jq",
+      "bash (WSL, Linux, macOS or Git Bash)"
     ],
     "setup": [
-      "kind create cluster --name cluster1",
-      "kind create cluster --name cluster2",
-      "kubectl config rename-context kind-cluster1 cluster1",
-      "kubectl config rename-context kind-cluster2 cluster2"
+      "./lab.sh up            # cluster1 (kindnet) + cluster2 (Calico, enforces NetworkPolicy), metrics-server on both",
+      "./lab.sh setup <id>    # prepares one question on its cluster without changing your current context",
+      "./ckad-grade.sh <id>   # grades it",
+      "./lab.sh reset         # start over from clean clusters"
     ],
     "notes": [
-      "Two clusters make the context-switching habit real. Questions say which context to use - always switch.",
-      "NetworkPolicy questions need a CNI that enforces policies. Recent kind versions' default CNI does; if a deny-all test still lets traffic through, install Calico on that cluster.",
-      "Ingress questions are graded on the Ingress object itself; an ingress controller is optional.",
-      "'k top' questions need metrics-server; skip them if it is not installed.",
-      "Use ~/ instead of /root/ for output files if you are not root."
+      "Two clusters make the context-switching habit real. 'lab.sh setup' deliberately leaves your current context alone - switching is part of the drill.",
+      "NetworkPolicy traffic tests (netpol-02) run on cluster2, which has Calico.",
+      "Ingress questions are graded on the Ingress object; no ingress controller is installed.",
+      "Use ~/ instead of /root/ for output files.",
+      "Git Bash on Windows: run 'export MSYS_NO_PATHCONV=1' first, otherwise arguments like /bin/sh are rewritten to Windows paths before reaching kubectl.exe and the object is silently wrong."
     ]
   },
   "scenario_questions": [
@@ -394,7 +396,7 @@
       "target_seconds": 150,
       "context": "cluster2",
       "setup": [
-        "Requires helm-01 to be installed (or any release)."
+        "(requires helm-01 to be installed first)"
       ],
       "task": "Upgrade release webapp-color-apd in namespace frontend-apd so it runs 5 replicas without editing values.yaml. Then roll the release back to revision 1. Write the revision number that is now deployed to ~/helm_revision.txt.",
       "checks": [
@@ -434,7 +436,7 @@
         },
         {
           "check": "~/helm_revision.txt contains exactly the current revision",
-          "cmd": "test \"$(tr -d \"[:space:]\" < ~/helm_revision.txt)\" = \"$(helm --kube-context cluster2 ls -n frontend-apd -o json | jq -r '.[] | select(.name == \"webapp-color-apd\") | .revision')\""
+          "cmd": "test -s ~/helm_revision.txt && test \"$(tr -d \"[:space:]\" < ~/helm_revision.txt)\" = \"$(helm --kube-context cluster2 ls -n frontend-apd -o json | jq -r '.[] | select(.name == \"webapp-color-apd\") | .revision')\""
         }
       ]
     },
@@ -447,8 +449,9 @@
       "target_seconds": 240,
       "context": "cluster1",
       "setup": [
-        "docker run -d --name ext-web --network kind -p 9999:80 nginx",
-        "docker inspect ext-web -f '{{.NetworkSettings.Networks.kind.IPAddress}}'   (this is the 'external' IP; the tutor tells the learner only that a webserver runs outside the cluster on port 80 at that IP)",
+        "docker rm -f ext-web >/dev/null 2>&1; docker run -d --name ext-web --network kind nginx >/dev/null",
+        "echo \"External webserver: $(docker inspect ext-web -f '{{.NetworkSettings.Networks.kind.IPAddress}}') port 80\"",
+        "(tutor: tell the learner only that a webserver runs outside the cluster at that IP on port 80)",
         "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata:\n  name: external-webserver-svcn\n  namespace: default\nspec:\n  ports:\n  - port: 80\n    protocol: TCP\n    targetPort: 80\nEOF"
       ],
       "task": "A webserver runs outside the cluster at <IP> on port 80. Service external-webserver-svcn in namespace default should let pods reach it, but it does not work. Fix it so that other pods can use external-webserver-svcn to access the webserver. Do not delete the Service.",
@@ -490,7 +493,7 @@
         },
         {
           "check": "a pod can curl http://external-webserver-svcn and gets the nginx page",
-          "cmd": "kubectl --context cluster1 run grade-curl-$RANDOM -n default --rm -i --restart=Never --image=curlimages/curl -- curl -s -m 3 http://external-webserver-svcn 2>/dev/null | grep -q 'Welcome to nginx'"
+          "cmd": "kubectl --context cluster1 run grade-curl-$RANDOM -n default --rm -i --restart=Never --image=curlimages/curl -- curl -s -m 3 http://external-webserver-svcn 2>/dev/null | grep 'Welcome to nginx'"
         }
       ]
     },
@@ -1240,7 +1243,7 @@
         },
         {
           "check": "~/multi.log contains only main container output",
-          "cmd": "! grep -Evq '^main-[0-9]+$' ~/multi.log"
+          "cmd": "test -s ~/multi.log && ! grep -Evq '^main-[0-9]+$' ~/multi.log"
         },
         {
           "check": "(needs metrics-server) ~/top-cpu.txt is exactly one existing kube-system pod name",
@@ -1489,7 +1492,7 @@
         },
         {
           "check": "endpoints are exactly the green pod IPs",
-          "cmd": "test \"$(kubectl --context cluster1 get endpointslices -n default -l kubernetes.io/service-name=shop -o jsonpath='{.items[*].endpoints[*].addresses[*]}' | tr ' ' '\\n' | sort)\" = \"$(kubectl --context cluster1 get pods -n default -l version=green -o jsonpath='{.items[*].status.podIP}' | tr ' ' '\\n' | sort)\""
+          "cmd": "test -n \"$(kubectl --context cluster1 get pods -n default -l version=green -o name)\" && test \"$(kubectl --context cluster1 get endpointslices -n default -l kubernetes.io/service-name=shop -o jsonpath='{.items[*].endpoints[*].addresses[*]}' | tr ' ' '\\n' | sort)\" = \"$(kubectl --context cluster1 get pods -n default -l version=green -o jsonpath='{.items[*].status.podIP}' | tr ' ' '\\n' | sort)\""
         }
       ]
     },
@@ -1593,11 +1596,11 @@
         },
         {
           "check": "api pod (app=backend, team=backend ns) reaches redis",
-          "cmd": "kubectl --context cluster2 exec -n ckad-api api -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep -q PONG"
+          "cmd": "kubectl --context cluster2 exec -n ckad-api api -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep PONG"
         },
         {
           "check": "other pod (app=other) is blocked",
-          "cmd": "! kubectl --context cluster2 exec -n ckad-api other -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep -q PONG"
+          "cmd": "! kubectl --context cluster2 exec -n ckad-api other -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep PONG"
         }
       ]
     },
@@ -1768,7 +1771,7 @@
         },
         {
           "check": "id in the container shows uid=1000 gid=3000",
-          "cmd": "kubectl --context cluster1 exec secure-app -n default -- id | grep -q 'uid=1000 gid=3000'"
+          "cmd": "kubectl --context cluster1 exec secure-app -n default -- id | grep 'uid=1000 gid=3000'"
         }
       ]
     },
@@ -1781,7 +1784,7 @@
       "target_seconds": 120,
       "context": "cluster2",
       "setup": [
-        "cat <<'EOF' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: animes.animes.k8s.io\nspec:\n  group: animes.k8s.io\n  scope: Namespaced\n  names:\n    plural: animes\n    singular: anime\n    kind: Anime\n    shortNames: [an]\n  versions:\n  - name: v1alpha1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              animeName:\n                type: string\n              episodeCount:\n                type: integer\n                minimum: 24\n                maximum: 52\nEOF"
+        "cat <<'EOF' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: animes.animes.k8s.io\n  annotations:\n    api-approved.kubernetes.io: \"unapproved, practice only\"\nspec:\n  group: animes.k8s.io\n  scope: Namespaced\n  names:\n    plural: animes\n    singular: anime\n    kind: Anime\n    shortNames: [an]\n  versions:\n  - name: v1alpha1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              animeName:\n                type: string\n              episodeCount:\n                type: integer\n                minimum: 24\n                maximum: 52\nEOF"
       ],
       "task": "A CRD for animes is installed. Create a resource named death-note in namespace default with anime name 'Death Note' and episode count 37. (Tutor: show the learner only 'kubectl describe crd' style field names with spaces, e.g. 'Anime Name', 'Episode Count'.)",
       "checks": [
@@ -1957,7 +1960,7 @@
         },
         {
           "check": "archive contains the tag my-app:1.0",
-          "cmd": "tar -xOf ~/my-app.tar manifest.json | grep -q 'my-app:1.0'"
+          "cmd": "tar -xOf ~/my-app.tar manifest.json | grep 'my-app:1.0'"
         }
       ]
     },
@@ -2119,7 +2122,7 @@
         },
         {
           "check": "(5) ~/checkout-ip.txt contains exactly the ClusterIP",
-          "cmd": "test \"$(tr -d '[:space:]' < ~/checkout-ip.txt)\" = \"$(kubectl --context cluster1 get svc checkout-svc -n ckad-full -o jsonpath='{.spec.clusterIP}')\""
+          "cmd": "test -s ~/checkout-ip.txt && test \"$(tr -d '[:space:]' < ~/checkout-ip.txt)\" = \"$(kubectl --context cluster1 get svc checkout-svc -n ckad-full -o jsonpath='{.spec.clusterIP}')\""
         }
       ]
     }
