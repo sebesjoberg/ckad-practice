@@ -1,0 +1,2389 @@
+{
+  "meta": {
+    "title": "CKAD speed practice - built from a failed mock exam (59%, pass 75%)",
+    "created": "2026-10-14",
+    "how_to_use": "Give this whole file to a Claude session and say: 'You are my CKAD examiner. Follow tutor_instructions.' Run the scenario questions on a local practice cluster (see practice_environment). Speed drills need no cluster."
+  },
+  "tutor_instructions": {
+    "role": "You are a strict but friendly CKAD examiner and speed coach. The goal is not to teach Kubernetes concepts (the learner already knows them) but to make the learner FAST and EXACT with imperative kubectl, and to drill the exam habits that cost points.",
+    "modes": {
+      "scenario": "One scenario question at a time on the learner's practice cluster. Learner runs it, then pastes commands + verification output.",
+      "drill": "Rapid-fire speed_drills: you show the prompt, learner types the command from memory (no docs). Grade it, show the canonical answer, next. Aim for 10-15 per round.",
+      "mock_exam": "Pick 8-12 scenario questions weighted like the real exam (mix all domains, prefer ones with recorded mistakes). Give a total time budget (sum of target_seconds x 1.5). Learner works through them in any order; grade everything at the end like the real grader.",
+      "weak_spots": "Only questions/drills whose mistake_category matches categories the learner has failed most this session."
+    },
+    "protocol": [
+      "Start by asking which mode, unless the learner already said.",
+      "Present a question exactly like the real exam: the 'kubectl config use-context <ctx>' line first, then the task text. Do NOT show checks, hints, traps or the solution up front.",
+      "Change names, numbers, images and ports for every repeat (use the 'variants' field or invent your own) so the learner cannot memorise answers.",
+      "Note the time when you present the question and when the learner submits; compare against target_seconds. Speed is the main skill being trained.",
+      "Grade like the real grader: literally. Exact names, exact values (e.g. '1.20.0' is not 'v1.20.0'), right namespace, right cluster/context. Report every check as PASS/FAIL.",
+      "When the learner says done, they run './ckad-grade.sh <id>' and paste the output. Score = PASS checks / total checks. Do not override a FAIL because 'it basically works' - the real grader would not.",
+      "A question is not 'done' until the learner shows a verification command (k get / describe / cat / curl) proving it. If they skip verification, mark it and remind them - missing verification was the #1 cause of lost points.",
+      "After grading, show the fastest_solution and compare it with what the learner did. Point out every place an imperative command or flag would have saved time.",
+      "Hint ladder when the learner is stuck or asks: (1) which resource/command to reach for, (2) the exact flag or field, (3) the full solution. Count hints used.",
+      "Keep a running tally per mistake_category (context, exact_match, missed_substep, technical, time) and show it every ~5 questions. Bias later questions toward the worst category.",
+      "Keep responses short. The learner is practising speed - no long lectures. One question at a time.",
+      "Where it genuinely helps, connect to the learner's strength (GitOps/ArgoCD, declarative thinking), e.g. 'this is the same as what ArgoCD would diff', but always steer back to the imperative fast path.",
+      "Never accept 'I would do X' - the learner must actually run it on the cluster and paste output."
+    ],
+    "grading_output_format": "Q<id> - <time used> / <target>  \nPASS/FAIL per check  \nMistake category (if any)  \nFastest path: <commands>  \nOne-line takeaway."
+  },
+  "learner_profile": {
+    "strengths": [
+      "Strong at high level: system design, cluster management with ArgoCD/GitOps, knows conceptually which object goes where.",
+      "Usually gets the Kubernetes part right (the pod/deployment/volume itself is correct)."
+    ],
+    "weaknesses": [
+      "Too slow: not fluent in imperative kubectl, searches docs for fields and flags.",
+      "Loses points on details, not knowledge."
+    ],
+    "mistakes_from_mock_exam": [
+      {
+        "category": "context",
+        "example": "Created a ResourceQuota on cluster3 when the question was on cluster2 (context left over from the previous question)."
+      },
+      {
+        "category": "exact_match",
+        "example": "Service named after the pod (webapp-svcn) instead of the required webapp-service-svcn - one wrong name failed 4 checks."
+      },
+      {
+        "category": "exact_match",
+        "example": "Helm installed with --generate-name instead of release name webapp-color-apd."
+      },
+      {
+        "category": "exact_match",
+        "example": "appVersion set to 'v1.20.0' instead of '1.20.0'."
+      },
+      {
+        "category": "exact_match",
+        "example": "CronJob schedule '30 * * * *' (once an hour) instead of '*/30 * * * *' (every 30 min)."
+      },
+      {
+        "category": "exact_match",
+        "example": "CronJob command split as [ps, -eaf] instead of [/bin/sh, -c, 'ps -eaf'] - grader looked for the string 'ps -eaf'."
+      },
+      {
+        "category": "technical",
+        "example": "EndpointSlice port had 'name: http' while the Service port was unnamed - ports pair by name, so the Service had no endpoints."
+      },
+      {
+        "category": "technical",
+        "example": "ConfigMap created with --from-file=<dir> instead of --from-env-file=<file> per file - keys were file names instead of KEY=value lines."
+      },
+      {
+        "category": "technical",
+        "example": "Wrote apiVersion as the CRD name (animes.animes.k8s.io/v1alpha1) instead of the group (animes.k8s.io/v1alpha1); copied field names with spaces from 'kubectl describe crd'."
+      },
+      {
+        "category": "technical",
+        "example": "Pasted a multi-line command onto one line with '\\ ' left in - kubectl saw the flags as extra NAME arguments."
+      },
+      {
+        "category": "missed_substep",
+        "example": "Created the Burstable pod but never wrote the required /root/qos_status_aecs file ('Also ...' sentence at the end of the task)."
+      },
+      {
+        "category": "missed_substep",
+        "example": "Wrote a fully correct secret-volume pod YAML but never ran kubectl apply (got side-tracked creating the secret)."
+      },
+      {
+        "category": "time",
+        "example": "Ran out of time on an easy liveness-probe question after spending too long debugging the EndpointSlice question."
+      }
+    ]
+  },
+  "exam_habits": [
+    "First 30 seconds of the exam: alias k=kubectl; export do='--dry-run=client -o yaml'; export now='--force --grace-period=0'",
+    "EVERY question: copy-paste the 'kubectl config use-context ...' line FIRST, before reading the rest. Also when returning to an earlier question.",
+    "Read the whole task before typing. Turn it into a numbered checklist (names, namespace, values, every 'Also ...' sentence).",
+    "Copy names and values from the task text - never retype or 'improve' them (no v-prefix, no extra port names, no renamed headers).",
+    "Prefer: imperative command > imperative with $do into a file + small edit > writing YAML from scratch.",
+    "After every apply: k get <thing> (-o yaml | grep ...) and compare to the checklist. Not done until verified.",
+    "If stuck > 5-6 min, flag the question and move on. Easy low-weight questions first.",
+    "Field names: 'k explain pod.spec.containers.livenessProbe' (or --recursive) is faster than the docs. Never copy field names from 'kubectl describe' output.",
+    "Before submitting: loop over all contexts to find objects created on the wrong cluster: for c in $(k config get-contexts -o name); do echo == $c; k --context $c get <kind> -A | grep <name>; done"
+  ],
+  "practice_environment": {
+    "requirements": [
+      "docker (or podman)",
+      "kind",
+      "kubectl",
+      "helm",
+      "jq and bash (the grader uses both; run it from WSL/Linux/macOS or Git Bash)"
+    ],
+    "setup": [
+      "kind create cluster --name cluster1",
+      "kind create cluster --name cluster2",
+      "kubectl config rename-context kind-cluster1 cluster1",
+      "kubectl config rename-context kind-cluster2 cluster2"
+    ],
+    "notes": [
+      "Two clusters make the context-switching habit real. Questions say which context to use - always switch.",
+      "NetworkPolicy questions need a CNI that enforces policies. Recent kind versions' default CNI does; if a deny-all test still lets traffic through, install Calico on that cluster.",
+      "Ingress questions are graded on the Ingress object itself; an ingress controller is optional.",
+      "'k top' questions need metrics-server; skip them if it is not installed.",
+      "Use ~/ instead of /root/ for output files if you are not root."
+    ]
+  },
+  "scenario_questions": [
+    {
+      "id": "cron-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "FAILED: CronJob schedule and command",
+      "mistake_category": "exact_match",
+      "weight": 4,
+      "target_seconds": 90,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-job"
+      ],
+      "task": "Create a CronJob named simple-node-job in namespace ckad-job that uses image node and runs the command 'ps -eaf' using /bin/sh. The job must run every 30 minutes.",
+      "checks": [
+        "cronjob simple-node-job exists in ckad-job",
+        "image is node",
+        "schedule is exactly '*/30 * * * *'",
+        "container command is [/bin/sh, -c, 'ps -eaf'] - 'ps -eaf' as ONE string"
+      ],
+      "verify": [
+        "k get cj simple-node-job -n ckad-job -o yaml | grep -A4 -E 'schedule|command'"
+      ],
+      "fastest_solution": [
+        "k create cronjob simple-node-job -n ckad-job --image=node --schedule=\"*/30 * * * *\" -- /bin/sh -c \"ps -eaf\""
+      ],
+      "traps": [
+        "'30 * * * *' means at minute 30 once an hour",
+        "'-- ps -eaf' gives [ps, -eaf] which a string check will not find",
+        "Quote the schedule or the shell expands *"
+      ],
+      "docs_search": "k create cronjob -h (examples at the bottom)",
+      "variants": [
+        "every 15 minutes, command 'date; echo hi'",
+        "every 2 hours on the hour",
+        "at 08:15 on weekdays"
+      ],
+      "grade": [
+        {
+          "check": "cronjob simple-node-job exists in ckad-job on cluster1",
+          "cmd": "kubectl --context cluster1 get cj simple-node-job -n ckad-job"
+        },
+        {
+          "check": "image is exactly node",
+          "cmd": "test \"$(kubectl --context cluster1 get cj simple-node-job -n ckad-job -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].image}')\" = \"node\""
+        },
+        {
+          "check": "schedule is exactly */30 * * * *",
+          "cmd": "test \"$(kubectl --context cluster1 get cj simple-node-job -n ckad-job -o jsonpath='{.spec.schedule}')\" = \"*/30 * * * *\""
+        },
+        {
+          "check": "command contains the single string 'ps -eaf'",
+          "cmd": "kubectl --context cluster1 get cj simple-node-job -n ckad-job -o json | jq -e  '.spec.jobTemplate.spec.template.spec.containers[0] | ((.command // []) + (.args // [])) | any(.[]; . == \"ps -eaf\")'"
+        },
+        {
+          "check": "runs via /bin/sh -c",
+          "cmd": "kubectl --context cluster1 get cj simple-node-job -n ckad-job -o json | jq -e  '.spec.jobTemplate.spec.template.spec.containers[0] | ((.command // []) + (.args // [])) as $c | ($c | any(.[]; . == \"/bin/sh\")) and ($c | any(.[]; . == \"-c\"))'"
+        }
+      ]
+    },
+    {
+      "id": "cron-02",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: CronJob fields that have no imperative flag",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 180,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad-batch"
+      ],
+      "task": "In namespace ckad-batch create a CronJob named report-cron with image busybox:1.36 that runs 'echo report' at 08:15 Monday to Friday. Concurrent runs must be forbidden, keep only 2 successful and 1 failed job in history, and each job must be terminated if it runs longer than 40 seconds.",
+      "checks": [
+        "schedule '15 8 * * 1-5'",
+        "spec.concurrencyPolicy: Forbid",
+        "spec.successfulJobsHistoryLimit: 2, spec.failedJobsHistoryLimit: 1",
+        "spec.jobTemplate.spec.activeDeadlineSeconds: 40"
+      ],
+      "verify": [
+        "k get cj report-cron -n ckad-batch -o yaml | grep -E 'schedule|concurrency|HistoryLimit|activeDeadline'"
+      ],
+      "fastest_solution": [
+        "k create cronjob report-cron -n ckad-batch --image=busybox:1.36 --schedule=\"15 8 * * 1-5\" $do -- /bin/sh -c \"echo report\" > cj.yaml",
+        "edit cj.yaml: add concurrencyPolicy, successfulJobsHistoryLimit, failedJobsHistoryLimit under CronJob spec; activeDeadlineSeconds under jobTemplate.spec",
+        "k apply -f cj.yaml"
+      ],
+      "traps": [
+        "activeDeadlineSeconds goes in jobTemplate.spec (the Job), not in the CronJob spec",
+        "Days of week: 0 = Sunday, 1-5 = Mon-Fri"
+      ],
+      "docs_search": "k explain cronjob.spec ; k explain cronjob.spec.jobTemplate.spec",
+      "grade": [
+        {
+          "check": "cronjob report-cron exists in ckad-batch on cluster2",
+          "cmd": "kubectl --context cluster2 get cj report-cron -n ckad-batch"
+        },
+        {
+          "check": "schedule is exactly 15 8 * * 1-5",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.schedule}')\" = \"15 8 * * 1-5\""
+        },
+        {
+          "check": "image is busybox:1.36",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].image}')\" = \"busybox:1.36\""
+        },
+        {
+          "check": "command runs 'echo report'",
+          "cmd": "kubectl --context cluster2 get cj report-cron -n ckad-batch -o json | jq -e  '.spec.jobTemplate.spec.template.spec.containers[0] | ((.command // []) + (.args // [])) | any(.[]; test(\"echo report\"))'"
+        },
+        {
+          "check": "concurrencyPolicy Forbid",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.concurrencyPolicy}')\" = \"Forbid\""
+        },
+        {
+          "check": "successfulJobsHistoryLimit 2",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.successfulJobsHistoryLimit}')\" = \"2\""
+        },
+        {
+          "check": "failedJobsHistoryLimit 1",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.failedJobsHistoryLimit}')\" = \"1\""
+        },
+        {
+          "check": "activeDeadlineSeconds 40 on the Job template (not the CronJob)",
+          "cmd": "test \"$(kubectl --context cluster2 get cj report-cron -n ckad-batch -o jsonpath='{.spec.jobTemplate.spec.activeDeadlineSeconds}')\" = \"40\""
+        }
+      ]
+    },
+    {
+      "id": "job-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: Job completions/parallelism",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 120,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-jobs"
+      ],
+      "task": "Create a Job named batch-proc in namespace ckad-jobs with image busybox:1.36 that runs 'echo processing; sleep 3'. It must complete 6 times, running 2 pods in parallel, and give up after 3 failed retries.",
+      "checks": [
+        "completions: 6",
+        "parallelism: 2",
+        "backoffLimit: 3",
+        "command runs via /bin/sh -c",
+        "job reaches 6/6 completions"
+      ],
+      "verify": [
+        "k get job batch-proc -n ckad-jobs -w   (wait for COMPLETIONS 6/6)"
+      ],
+      "fastest_solution": [
+        "k create job batch-proc -n ckad-jobs --image=busybox:1.36 $do -- /bin/sh -c \"echo processing; sleep 3\" > job.yaml",
+        "add completions: 6, parallelism: 2, backoffLimit: 3 under job spec (same level as template)",
+        "k apply -f job.yaml"
+      ],
+      "traps": [
+        "restartPolicy must be Never or OnFailure (k create job sets Never)",
+        "These three fields sit under spec, not spec.template.spec"
+      ],
+      "docs_search": "k explain job.spec",
+      "grade": [
+        {
+          "check": "job batch-proc exists in ckad-jobs on cluster1",
+          "cmd": "kubectl --context cluster1 get job batch-proc -n ckad-jobs"
+        },
+        {
+          "check": "image busybox:1.36",
+          "cmd": "test \"$(kubectl --context cluster1 get job batch-proc -n ckad-jobs -o jsonpath='{.spec.template.spec.containers[0].image}')\" = \"busybox:1.36\""
+        },
+        {
+          "check": "completions 6",
+          "cmd": "test \"$(kubectl --context cluster1 get job batch-proc -n ckad-jobs -o jsonpath='{.spec.completions}')\" = \"6\""
+        },
+        {
+          "check": "parallelism 2",
+          "cmd": "test \"$(kubectl --context cluster1 get job batch-proc -n ckad-jobs -o jsonpath='{.spec.parallelism}')\" = \"2\""
+        },
+        {
+          "check": "backoffLimit 3",
+          "cmd": "test \"$(kubectl --context cluster1 get job batch-proc -n ckad-jobs -o jsonpath='{.spec.backoffLimit}')\" = \"3\""
+        },
+        {
+          "check": "command runs 'echo processing'",
+          "cmd": "kubectl --context cluster1 get job batch-proc -n ckad-jobs -o json | jq -e  '.spec.template.spec.containers[0] | ((.command // []) + (.args // [])) | any(.[]; test(\"echo processing\"))'"
+        },
+        {
+          "check": "job actually finished 6/6",
+          "cmd": "test \"$(kubectl --context cluster1 get job batch-proc -n ckad-jobs -o jsonpath='{.status.succeeded}')\" = \"6\""
+        }
+      ]
+    },
+    {
+      "id": "helm-01",
+      "domain": "Application Deployment",
+      "inspired_by": "FAILED: helm release name + appVersion",
+      "mistake_category": "exact_match",
+      "weight": 8,
+      "target_seconds": 300,
+      "context": "cluster2",
+      "setup": [
+        "mkdir -p ~/opt && cd ~/opt && helm create webapp-color-apd",
+        "sed -i 's|apiVersion: apps/v1|apiVersion: apps/v1beta1|' ~/opt/webapp-color-apd/templates/deployment.yaml",
+        "sed -i 's|name: {{ include \"webapp-color-apd.fullname\" . }}|name: {{ .Values.service.nmae }}|' ~/opt/webapp-color-apd/templates/service.yaml",
+        "(the tutor should NOT reveal which bugs were introduced)"
+      ],
+      "task": "A Helm chart is in ~/opt/webapp-color-apd. Update it: appVersion 1.20.0 in Chart.yaml, replicaCount 3 and service type NodePort in values.yaml. The chart templates contain errors - find and fix them. Then install the chart as release webapp-color-apd in namespace frontend-apd (create the namespace if it does not exist).",
+      "checks": [
+        "helm ls -n frontend-apd shows NAME webapp-color-apd",
+        "APP VERSION is exactly 1.20.0",
+        "deployment has 3 ready replicas",
+        "service type NodePort, service has a non-empty name",
+        "resources are in frontend-apd"
+      ],
+      "verify": [
+        "helm ls -n frontend-apd",
+        "k get deploy,svc -n frontend-apd"
+      ],
+      "fastest_solution": [
+        "k create ns frontend-apd",
+        "helm lint ./webapp-color-apd && helm template ./webapp-color-apd | less   (find empty name and bad apiVersion)",
+        "fix templates/deployment.yaml -> apiVersion: apps/v1 ; fix templates/service.yaml typo .Values.service.nmae",
+        "edit Chart.yaml appVersion: \"1.20.0\" ; values.yaml replicaCount: 3, service.type: NodePort",
+        "helm install webapp-color-apd ./webapp-color-apd -n frontend-apd"
+      ],
+      "traps": [
+        "helm install <RELEASE-NAME> <CHART> - never --generate-name when a name is given",
+        "no 'v' prefix on appVersion",
+        "appVersion lives in Chart.yaml, the rest in values.yaml - easy to miss one",
+        "helm lint does not catch a wrong apiVersion; helm template / install does"
+      ],
+      "docs_search": "helm install -h ; helm template",
+      "grade": [
+        {
+          "check": "release named exactly webapp-color-apd is deployed in frontend-apd",
+          "cmd": "helm --kube-context cluster2 ls -n frontend-apd -o json | jq -e '.[] | select(.name == \"webapp-color-apd\") | .status == \"deployed\"'"
+        },
+        {
+          "check": "it is the ONLY release in frontend-apd (no --generate-name leftovers)",
+          "cmd": "test \"$(helm --kube-context cluster2 ls -n frontend-apd -a -q | wc -l | tr -d ' ')\" = \"1\""
+        },
+        {
+          "check": "release APP VERSION is exactly 1.20.0",
+          "cmd": "helm --kube-context cluster2 ls -n frontend-apd -o json | jq -e '.[] | select(.name == \"webapp-color-apd\") | .app_version == \"1.20.0\"'"
+        },
+        {
+          "check": "Chart.yaml appVersion is exactly 1.20.0 (no v)",
+          "cmd": "grep -Eq '^appVersion: \"?1\\.20\\.0\"?\\s*$' ~/opt/webapp-color-apd/Chart.yaml"
+        },
+        {
+          "check": "deployment has 3 ready replicas",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy -n frontend-apd -l app.kubernetes.io/instance=webapp-color-apd -o jsonpath='{.items[0].status.readyReplicas}')\" = \"3\""
+        },
+        {
+          "check": "service is NodePort",
+          "cmd": "test \"$(kubectl --context cluster2 get svc -n frontend-apd -l app.kubernetes.io/instance=webapp-color-apd -o jsonpath='{.items[0].spec.type}')\" = \"NodePort\""
+        },
+        {
+          "check": "deployment template uses apiVersion apps/v1",
+          "cmd": "grep -Eq '^apiVersion: apps/v1\\s*$' ~/opt/webapp-color-apd/templates/deployment.yaml"
+        }
+      ]
+    },
+    {
+      "id": "helm-02",
+      "domain": "Application Deployment",
+      "inspired_by": "Common CKAD: helm lifecycle commands",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 150,
+      "context": "cluster2",
+      "setup": [
+        "Requires helm-01 to be installed (or any release)."
+      ],
+      "task": "Upgrade release webapp-color-apd in namespace frontend-apd so it runs 5 replicas without editing values.yaml. Then roll the release back to revision 1. Write the revision number that is now deployed to ~/helm_revision.txt.",
+      "checks": [
+        "helm history shows an upgrade revision with 5 replicas",
+        "current deployed revision is a rollback of revision 1 (3 replicas)",
+        "~/helm_revision.txt contains the current revision number (3)"
+      ],
+      "verify": [
+        "helm history webapp-color-apd -n frontend-apd",
+        "k get deploy -n frontend-apd",
+        "cat ~/helm_revision.txt"
+      ],
+      "fastest_solution": [
+        "helm upgrade webapp-color-apd ./webapp-color-apd -n frontend-apd --set replicaCount=5",
+        "helm rollback webapp-color-apd 1 -n frontend-apd",
+        "helm ls -n frontend-apd   (REVISION column) ; echo 3 > ~/helm_revision.txt"
+      ],
+      "traps": [
+        "A rollback creates a NEW revision number (3), it does not go back to number 1"
+      ],
+      "docs_search": "helm upgrade -h ; helm rollback -h",
+      "variants": [
+        "helm repo add bitnami https://charts.bitnami.com/bitnami ; install a specific chart version with --version ; helm show values ; helm uninstall"
+      ],
+      "grade": [
+        {
+          "check": "revision 2 was an upgrade with replicaCount 5",
+          "cmd": "helm --kube-context cluster2 get values webapp-color-apd -n frontend-apd --revision 2 -o json | jq -e '.replicaCount == 5'"
+        },
+        {
+          "check": "current deployed revision is 'Rollback to 1'",
+          "cmd": "helm --kube-context cluster2 history webapp-color-apd -n frontend-apd -o json | jq -e 'map(select(.status == \"deployed\"))[0].description | test(\"Rollback to 1\")'"
+        },
+        {
+          "check": "deployment back to 3 ready replicas",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy -n frontend-apd -l app.kubernetes.io/instance=webapp-color-apd -o jsonpath='{.items[0].status.readyReplicas}')\" = \"3\""
+        },
+        {
+          "check": "~/helm_revision.txt contains exactly the current revision",
+          "cmd": "test \"$(tr -d \"[:space:]\" < ~/helm_revision.txt)\" = \"$(helm --kube-context cluster2 ls -n frontend-apd -o json | jq -r '.[] | select(.name == \"webapp-color-apd\") | .revision')\""
+        }
+      ]
+    },
+    {
+      "id": "svc-ext-01",
+      "domain": "Services and Networking",
+      "inspired_by": "FAILED: service to external webserver (EndpointSlice port name)",
+      "mistake_category": "technical",
+      "weight": 8,
+      "target_seconds": 240,
+      "context": "cluster1",
+      "setup": [
+        "docker run -d --name ext-web --network kind -p 9999:80 nginx",
+        "docker inspect ext-web -f '{{.NetworkSettings.Networks.kind.IPAddress}}'   (this is the 'external' IP; the tutor tells the learner only that a webserver runs outside the cluster on port 80 at that IP)",
+        "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata:\n  name: external-webserver-svcn\n  namespace: default\nspec:\n  ports:\n  - port: 80\n    protocol: TCP\n    targetPort: 80\nEOF"
+      ],
+      "task": "A webserver runs outside the cluster at <IP> on port 80. Service external-webserver-svcn in namespace default should let pods reach it, but it does not work. Fix it so that other pods can use external-webserver-svcn to access the webserver. Do not delete the Service.",
+      "checks": [
+        "describe svc shows Endpoints: <IP>:80",
+        "endpoint port name matches the Service port name (here: unnamed)",
+        "curl from a pod to http://external-webserver-svcn returns the nginx page"
+      ],
+      "verify": [
+        "k describe svc external-webserver-svcn | grep Endpoints",
+        "k run tmp --rm -i --image=curlimages/curl --restart=Never -- curl -m 3 external-webserver-svcn"
+      ],
+      "fastest_solution": [
+        "cat <<EOF | k apply -f -\napiVersion: discovery.k8s.io/v1\nkind: EndpointSlice\nmetadata:\n  name: external-webserver-svcn-1\n  labels:\n    kubernetes.io/service-name: external-webserver-svcn\naddressType: IPv4\nports:\n- port: 80\n  protocol: TCP\nendpoints:\n- addresses:\n  - <IP>\nEOF"
+      ],
+      "traps": [
+        "The label kubernetes.io/service-name is the ONLY link between slice and Service (the slice name does not matter)",
+        "Port names must match exactly - unnamed Service port => no name on the slice port",
+        "Never use 127.0.0.1/localhost - in a pod that is the pod itself",
+        "Always check 'Endpoints:' in describe svc, then curl from a pod"
+      ],
+      "docs_search": "kubernetes.io: 'Services without selectors'",
+      "variants": [
+        "Service port is named 'web' (then the slice port MUST be named 'web')",
+        "use a legacy v1 Endpoints object instead (link = same name as Service)"
+      ],
+      "grade": [
+        {
+          "check": "Service still exists and still has no selector",
+          "cmd": "kubectl --context cluster1 get svc external-webserver-svcn -n default -o json | jq -e  '.spec.selector == null'"
+        },
+        {
+          "check": "an EndpointSlice linked to the Service contains the webserver IP",
+          "cmd": "IP=$(docker inspect ext-web -f '{{.NetworkSettings.Networks.kind.IPAddress}}'); kubectl --context cluster1 get endpointslices -n default -l kubernetes.io/service-name=external-webserver-svcn -o json | jq -e --arg ip \"$IP\" '[.items[] | select(any(.endpoints[]?; any(.addresses[]; . == $ip)))] | length > 0'"
+        },
+        {
+          "check": "slice port is 80 and its name matches the Service port name exactly",
+          "cmd": "PN=$(kubectl --context cluster1 get svc external-webserver-svcn -n default -o jsonpath='{.spec.ports[0].name}'); IP=$(docker inspect ext-web -f '{{.NetworkSettings.Networks.kind.IPAddress}}'); kubectl --context cluster1 get endpointslices -n default -l kubernetes.io/service-name=external-webserver-svcn -o json | jq -e --arg ip \"$IP\" --arg pn \"$PN\" '[.items[] | select(any(.endpoints[]?; any(.addresses[]; . == $ip))) | select(any(.ports[]; (.name // \"\") == $pn and .port == 80))] | length > 0'"
+        },
+        {
+          "check": "a pod can curl http://external-webserver-svcn and gets the nginx page",
+          "cmd": "kubectl --context cluster1 run grade-curl-$RANDOM -n default --rm -i --restart=Never --image=curlimages/curl -- curl -s -m 3 http://external-webserver-svcn 2>/dev/null | grep -q 'Welcome to nginx'"
+        }
+      ]
+    },
+    {
+      "id": "svc-expose-01",
+      "domain": "Services and Networking",
+      "inspired_by": "FAILED: service got the pod's name",
+      "mistake_category": "exact_match",
+      "weight": 4,
+      "target_seconds": 45,
+      "context": "cluster2",
+      "setup": [],
+      "task": "Deploy a pod named webapp-svcn using image kodekloud/webapp-color with label tier=msg. Create a service webapp-service-svcn to expose the pod within the cluster on port 6379.",
+      "checks": [
+        "pod webapp-svcn, image kodekloud/webapp-color, label tier=msg",
+        "service named exactly webapp-service-svcn",
+        "type ClusterIP",
+        "port 6379",
+        "selector tier=msg"
+      ],
+      "verify": [
+        "k get pod webapp-svcn --show-labels",
+        "k get svc webapp-service-svcn -o wide"
+      ],
+      "fastest_solution": [
+        "k run webapp-svcn --image=kodekloud/webapp-color -l tier=msg",
+        "k expose pod webapp-svcn --port=6379 --name=webapp-service-svcn"
+      ],
+      "traps": [
+        "expose without --name names the Service after the pod",
+        "'k run --expose' also names the Service after the pod - wrong here"
+      ],
+      "docs_search": "k expose -h",
+      "grade": [
+        {
+          "check": "pod webapp-svcn has image exactly kodekloud/webapp-color",
+          "cmd": "test \"$(kubectl --context cluster2 get pod webapp-svcn -n default -o jsonpath='{.spec.containers[0].image}')\" = \"kodekloud/webapp-color\""
+        },
+        {
+          "check": "pod has label tier=msg",
+          "cmd": "test \"$(kubectl --context cluster2 get pod webapp-svcn -n default -o jsonpath='{.metadata.labels.tier}')\" = \"msg\""
+        },
+        {
+          "check": "service named exactly webapp-service-svcn exists",
+          "cmd": "kubectl --context cluster2 get svc webapp-service-svcn -n default"
+        },
+        {
+          "check": "service type ClusterIP",
+          "cmd": "test \"$(kubectl --context cluster2 get svc webapp-service-svcn -n default -o jsonpath='{.spec.type}')\" = \"ClusterIP\""
+        },
+        {
+          "check": "service port 6379",
+          "cmd": "test \"$(kubectl --context cluster2 get svc webapp-service-svcn -n default -o jsonpath='{.spec.ports[0].port}')\" = \"6379\""
+        },
+        {
+          "check": "selector is exactly tier=msg",
+          "cmd": "kubectl --context cluster2 get svc webapp-service-svcn -n default -o json | jq -e  '.spec.selector == {\"tier\": \"msg\"}'"
+        },
+        {
+          "check": "service has the pod as endpoint",
+          "cmd": "kubectl --context cluster2 get endpointslices -n default -l kubernetes.io/service-name=webapp-service-svcn -o json | jq -e '[.items[].endpoints[]?] | length == 1'"
+        }
+      ]
+    },
+    {
+      "id": "svc-nodeport-01",
+      "domain": "Services and Networking",
+      "inspired_by": "Common CKAD: fixed nodePort",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 120,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-np"
+      ],
+      "task": "In namespace ckad-np create a deployment shop-front with image nginx:1.27 and 3 replicas. Expose it with a NodePort service named shop-front-svc on port 80, using node port 30080.",
+      "checks": [
+        "deployment 3/3 ready",
+        "svc shop-front-svc type NodePort, port 80, nodePort 30080",
+        "svc has endpoints (3 IPs)"
+      ],
+      "verify": [
+        "k get deploy,svc,endpointslices -n ckad-np"
+      ],
+      "fastest_solution": [
+        "k create deploy shop-front -n ckad-np --image=nginx:1.27 --replicas=3 --port=80",
+        "k expose deploy shop-front -n ckad-np --name=shop-front-svc --type=NodePort --port=80 $do > svc.yaml",
+        "add nodePort: 30080 under ports[0] ; k apply -f svc.yaml"
+      ],
+      "traps": [
+        "expose has no --node-port flag; 'k create service nodeport --node-port' does, but its selector is app=<service-name>, which only works if the service name equals the deployment name"
+      ],
+      "docs_search": "k explain service.spec.ports",
+      "grade": [
+        {
+          "check": "deployment shop-front image nginx:1.27",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy shop-front -n ckad-np -o jsonpath='{.spec.template.spec.containers[0].image}')\" = \"nginx:1.27\""
+        },
+        {
+          "check": "deployment has 3 ready replicas",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy shop-front -n ckad-np -o jsonpath='{.status.readyReplicas}')\" = \"3\""
+        },
+        {
+          "check": "service shop-front-svc type NodePort",
+          "cmd": "test \"$(kubectl --context cluster1 get svc shop-front-svc -n ckad-np -o jsonpath='{.spec.type}')\" = \"NodePort\""
+        },
+        {
+          "check": "service port 80",
+          "cmd": "test \"$(kubectl --context cluster1 get svc shop-front-svc -n ckad-np -o jsonpath='{.spec.ports[0].port}')\" = \"80\""
+        },
+        {
+          "check": "nodePort exactly 30080",
+          "cmd": "test \"$(kubectl --context cluster1 get svc shop-front-svc -n ckad-np -o jsonpath='{.spec.ports[0].nodePort}')\" = \"30080\""
+        },
+        {
+          "check": "service has 3 endpoints",
+          "cmd": "kubectl --context cluster1 get endpointslices -n ckad-np -l kubernetes.io/service-name=shop-front-svc -o json | jq -e '[.items[].endpoints[]?] | length == 3'"
+        }
+      ]
+    },
+    {
+      "id": "svc-extname-01",
+      "domain": "Services and Networking",
+      "inspired_by": "Mock exam: ExternalName service (passed - keep it fast)",
+      "mistake_category": "time",
+      "weight": 3,
+      "target_seconds": 30,
+      "context": "cluster1",
+      "setup": [],
+      "task": "Create a Service called ckad12-service in namespace default of type ExternalName that points to db.example.com and listens on port 5432.",
+      "checks": [
+        "type ExternalName",
+        "externalName db.example.com",
+        "port 5432",
+        "no selector"
+      ],
+      "verify": [
+        "k get svc ckad12-service"
+      ],
+      "fastest_solution": [
+        "k create service externalname ckad12-service --external-name=db.example.com --tcp=5432:5432"
+      ],
+      "traps": [
+        "ExternalName has no ClusterIP and no endpoints - it is only a DNS CNAME"
+      ],
+      "docs_search": "k create service externalname -h",
+      "grade": [
+        {
+          "check": "service ckad12-service exists in default on cluster1",
+          "cmd": "kubectl --context cluster1 get svc ckad12-service -n default"
+        },
+        {
+          "check": "type ExternalName",
+          "cmd": "test \"$(kubectl --context cluster1 get svc ckad12-service -n default -o jsonpath='{.spec.type}')\" = \"ExternalName\""
+        },
+        {
+          "check": "externalName exactly db.example.com",
+          "cmd": "test \"$(kubectl --context cluster1 get svc ckad12-service -n default -o jsonpath='{.spec.externalName}')\" = \"db.example.com\""
+        },
+        {
+          "check": "port 5432",
+          "cmd": "test \"$(kubectl --context cluster1 get svc ckad12-service -n default -o jsonpath='{.spec.ports[0].port}')\" = \"5432\""
+        },
+        {
+          "check": "no selector",
+          "cmd": "kubectl --context cluster1 get svc ckad12-service -n default -o json | jq -e  '.spec.selector == null'"
+        }
+      ]
+    },
+    {
+      "id": "qos-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "FAILED: never wrote the output file ('Also ...' sub-step)",
+      "mistake_category": "missed_substep",
+      "weight": 6,
+      "target_seconds": 150,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad17-qos",
+        "kubectl run qos-pod-1 -n ckad17-qos --image=nginx",
+        "kubectl run qos-pod-2 -n ckad17-qos --image=nginx --dry-run=client -o yaml | sed 's|resources: {}|resources: {requests: {cpu: 100m, memory: 64Mi}, limits: {cpu: 100m, memory: 64Mi}}|' | kubectl apply -f -"
+      ],
+      "task": "Create a pod named qos-pod-3 in namespace ckad17-qos with image nginx and container name qos-ctr-3. Configure it so it gets the QoS class Burstable. Also retrieve the name and QoS class of each Pod in namespace ckad17-qos in the format below and save it to ~/qos_status.\n\nNAME    QOS\npod-1   qos_class",
+      "checks": [
+        "pod qos-pod-3 exists with container name qos-ctr-3",
+        "status.qosClass is Burstable",
+        "~/qos_status exists, header exactly 'NAME' and 'QOS'",
+        "file lists all 3 pods including qos-pod-3"
+      ],
+      "verify": [
+        "k get pod qos-pod-3 -n ckad17-qos -o jsonpath='{.status.qosClass}'",
+        "cat ~/qos_status"
+      ],
+      "fastest_solution": [
+        "k run qos-pod-3 -n ckad17-qos --image=nginx $do > p.yaml",
+        "edit: container name qos-ctr-3 ; resources: requests: memory: 100Mi, limits: memory: 200Mi ; k apply -f p.yaml",
+        "k get pod -n ckad17-qos -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass > ~/qos_status"
+      ],
+      "traps": [
+        "Write the file AFTER creating the pod - it is a snapshot",
+        "Burstable = at least one request/limit but not requests==limits for all of cpu+memory",
+        "kubectl run no longer has --requests/--limits flags"
+      ],
+      "docs_search": "k explain pod.spec.containers.resources ; kubernetes.io 'Pod Quality of Service Classes'",
+      "grade": [
+        {
+          "check": "pod qos-pod-3 exists in ckad17-qos on cluster1",
+          "cmd": "kubectl --context cluster1 get pod qos-pod-3 -n ckad17-qos"
+        },
+        {
+          "check": "container name exactly qos-ctr-3",
+          "cmd": "test \"$(kubectl --context cluster1 get pod qos-pod-3 -n ckad17-qos -o jsonpath='{.spec.containers[0].name}')\" = \"qos-ctr-3\""
+        },
+        {
+          "check": "image nginx",
+          "cmd": "test \"$(kubectl --context cluster1 get pod qos-pod-3 -n ckad17-qos -o jsonpath='{.spec.containers[0].image}')\" = \"nginx\""
+        },
+        {
+          "check": "QoS class Burstable",
+          "cmd": "test \"$(kubectl --context cluster1 get pod qos-pod-3 -n ckad17-qos -o jsonpath='{.status.qosClass}')\" = \"Burstable\""
+        },
+        {
+          "check": "~/qos_status header is exactly NAME QOS",
+          "cmd": "test \"$(head -1 ~/qos_status | awk '{print $1, $2}')\" = \"NAME QOS\""
+        },
+        {
+          "check": "~/qos_status matches the live pods (all 3, incl. qos-pod-3)",
+          "cmd": "diff <(kubectl --context cluster1 get pod -n ckad17-qos -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | awk '{print $1, $2}') <(awk '{print $1, $2}' ~/qos_status)"
+        }
+      ]
+    },
+    {
+      "id": "cm-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "FAILED: --from-file=<dir> instead of --from-env-file",
+      "mistake_category": "technical",
+      "weight": 4,
+      "target_seconds": 60,
+      "context": "cluster2",
+      "setup": [
+        "mkdir -p ~/ckad04-multi-cm",
+        "printf 'exam=ckad\\nretries=2\\nallowed=true\\n' > ~/ckad04-multi-cm/file1.properties",
+        "printf 'difficulty=fairlyEasy\\nmodetype=openbook\\npractice=must\\n' > ~/ckad04-multi-cm/file2.properties"
+      ],
+      "task": "Create a ConfigMap named ckad04-config-multi-env-files in namespace default from the environment (env) files in ~/ckad04-multi-cm.",
+      "checks": [
+        "6 separate keys: exam, retries, allowed, difficulty, modetype, practice",
+        "NO keys named file1.properties / file2.properties"
+      ],
+      "verify": [
+        "k get cm ckad04-config-multi-env-files -o yaml"
+      ],
+      "fastest_solution": [
+        "ls ~/ckad04-multi-cm ; k create cm ckad04-config-multi-env-files --from-env-file=$HOME/ckad04-multi-cm/file1.properties --from-env-file=$HOME/ckad04-multi-cm/file2.properties"
+      ],
+      "traps": [
+        "--from-file=dir/ makes one key per FILE with the whole file as the value",
+        "--from-env-file does not accept a directory - name each file"
+      ],
+      "docs_search": "k create cm -h",
+      "variants": [
+        "then use it in a pod: envFrom configMapRef",
+        "only key 'exam' as env var EXAM_NAME (env.valueFrom.configMapKeyRef)"
+      ],
+      "grade": [
+        {
+          "check": "configmap exists in default on cluster2",
+          "cmd": "kubectl --context cluster2 get cm ckad04-config-multi-env-files -n default"
+        },
+        {
+          "check": "keys are exactly the 6 env keys (no file-name keys)",
+          "cmd": "kubectl --context cluster2 get cm ckad04-config-multi-env-files -n default -o json | jq -e  '.data | keys == [\"allowed\",\"difficulty\",\"exam\",\"modetype\",\"practice\",\"retries\"]'"
+        },
+        {
+          "check": "values are correct",
+          "cmd": "kubectl --context cluster2 get cm ckad04-config-multi-env-files -n default -o json | jq -e  '.data.exam == \"ckad\" and .data.retries == \"2\" and .data.allowed == \"true\" and .data.difficulty == \"fairlyEasy\" and .data.modetype == \"openbook\" and .data.practice == \"must\"'"
+        }
+      ]
+    },
+    {
+      "id": "cm-02",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "Common CKAD: ConfigMap mounted as a file",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 180,
+      "context": "cluster1",
+      "setup": [
+        "printf 'server { listen 8080; location / { return 200 \"ok\"; } }\\n' > ~/site.conf"
+      ],
+      "task": "Create a ConfigMap nginx-site from the file ~/site.conf. Create a pod web-cfg with image nginx:1.27 that mounts this ConfigMap so the file appears as /etc/nginx/conf.d/site.conf. The pod must answer on port 8080.",
+      "checks": [
+        "cm nginx-site has key site.conf",
+        "pod web-cfg Running",
+        "file /etc/nginx/conf.d/site.conf exists in container",
+        "curl localhost:8080 inside the pod returns ok"
+      ],
+      "verify": [
+        "k exec web-cfg -- cat /etc/nginx/conf.d/site.conf",
+        "k exec web-cfg -- curl -s localhost:8080"
+      ],
+      "fastest_solution": [
+        "k create cm nginx-site --from-file=$HOME/site.conf",
+        "k run web-cfg --image=nginx:1.27 --port=8080 $do > p.yaml",
+        "add volumes: - name: cfg, configMap: {name: nginx-site} ; volumeMounts: - name: cfg, mountPath: /etc/nginx/conf.d",
+        "k apply -f p.yaml"
+      ],
+      "traps": [
+        "Mounting at /etc/nginx/conf.d hides the default.conf - that is fine here; use subPath if you must keep other files"
+      ],
+      "docs_search": "kubernetes.io 'Configure a Pod to Use a ConfigMap' -> 'Add ConfigMap data to a Volume'",
+      "grade": [
+        {
+          "check": "configmap nginx-site has exactly one key site.conf",
+          "cmd": "kubectl --context cluster1 get cm nginx-site -n default -o json | jq -e  '.data | keys == [\"site.conf\"]'"
+        },
+        {
+          "check": "pod web-cfg image nginx:1.27 and Running",
+          "cmd": "kubectl --context cluster1 get pod web-cfg -n default -o json | jq -e  '.spec.containers[0].image == \"nginx:1.27\" and .status.phase == \"Running\"'"
+        },
+        {
+          "check": "pod volume uses configMap nginx-site",
+          "cmd": "kubectl --context cluster1 get pod web-cfg -n default -o json | jq -e  'any(.spec.volumes[]; .configMap.name == \"nginx-site\")'"
+        },
+        {
+          "check": "file /etc/nginx/conf.d/site.conf exists in the container",
+          "cmd": "kubectl --context cluster1 exec web-cfg -n default -- test -f /etc/nginx/conf.d/site.conf"
+        },
+        {
+          "check": "pod answers 'ok' on port 8080",
+          "cmd": "test \"$(kubectl --context cluster1 exec web-cfg -n default -- curl -s localhost:8080)\" = \"ok\""
+        }
+      ]
+    },
+    {
+      "id": "secret-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "Mock exam: secret + envFrom (backslash and namespace slips)",
+      "mistake_category": "technical",
+      "weight": 6,
+      "target_seconds": 90,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad01-db-sec",
+        "kubectl create deploy ckad01-mysql-server -n ckad01-db-sec --image=nginx"
+      ],
+      "task": "In namespace ckad01-db-sec create a secret ckad01-db-scrt with DB_Host=sql01, DB_User=root, DB_Password=password123. Configure deployment ckad01-mysql-server to load environment variables from this secret, where the keys become the environment variable names.",
+      "checks": [
+        "secret in ckad01-db-sec with exactly 3 keys",
+        "deployment uses envFrom secretRef ckad01-db-scrt",
+        "new pod has DB_Host, DB_User, DB_Password in env with the exact same case"
+      ],
+      "verify": [
+        "k exec -n ckad01-db-sec deploy/ckad01-mysql-server -- env | grep DB_"
+      ],
+      "fastest_solution": [
+        "k create secret generic ckad01-db-scrt -n ckad01-db-sec --from-literal=DB_Host=sql01 --from-literal=DB_User=root --from-literal=DB_Password=password123",
+        "k patch deploy ckad01-mysql-server -n ckad01-db-sec --type=json -p '[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/envFrom\",\"value\":[{\"secretRef\":{\"name\":\"ckad01-db-scrt\"}}]}]'",
+        "(or k edit deploy ... and add envFrom: [{secretRef: {name: ckad01-db-scrt}}] under the container)"
+      ],
+      "traps": [
+        "'k set env --from=secret/x' is NOT envFrom: it writes one env entry per key AND converts key names to UPPERCASE (DB_Host -> DB_HOST), so 'keys become the env var names' fails. Use envFrom via edit/patch.",
+        "Secret must be in the same namespace as the workload",
+        "A bare Pod cannot get new env - export, edit, 'k replace --force -f'",
+        "'\\ ' on one line is not a line continuation"
+      ],
+      "docs_search": "k set env -h",
+      "variants": [
+        "target is a bare Pod instead of a Deployment",
+        "only DB_Password, exposed as env var MYSQL_ROOT_PASSWORD (env.valueFrom.secretKeyRef)"
+      ],
+      "grade": [
+        {
+          "check": "secret ckad01-db-scrt exists in ckad01-db-sec on cluster1",
+          "cmd": "kubectl --context cluster1 get secret ckad01-db-scrt -n ckad01-db-sec"
+        },
+        {
+          "check": "secret keys are exactly DB_Host, DB_Password, DB_User",
+          "cmd": "kubectl --context cluster1 get secret ckad01-db-scrt -n ckad01-db-sec -o json | jq -e  '.data | keys == [\"DB_Host\",\"DB_Password\",\"DB_User\"]'"
+        },
+        {
+          "check": "secret values are correct",
+          "cmd": "kubectl --context cluster1 get secret ckad01-db-scrt -n ckad01-db-sec -o json | jq -e  '(.data.DB_Host | @base64d) == \"sql01\" and (.data.DB_User | @base64d) == \"root\" and (.data.DB_Password | @base64d) == \"password123\"'"
+        },
+        {
+          "check": "deployment uses envFrom secretRef ckad01-db-scrt",
+          "cmd": "kubectl --context cluster1 get deploy ckad01-mysql-server -n ckad01-db-sec -o json | jq -e  'any(.spec.template.spec.containers[0].envFrom[]?; .secretRef.name == \"ckad01-db-scrt\")'"
+        },
+        {
+          "check": "running pod has DB_Host=sql01 (exact case)",
+          "cmd": "test \"$(kubectl --context cluster1 exec -n ckad01-db-sec deploy/ckad01-mysql-server -- printenv DB_Host)\" = \"sql01\""
+        },
+        {
+          "check": "running pod has DB_User=root (exact case)",
+          "cmd": "test \"$(kubectl --context cluster1 exec -n ckad01-db-sec deploy/ckad01-mysql-server -- printenv DB_User)\" = \"root\""
+        },
+        {
+          "check": "running pod has DB_Password=password123 (exact case)",
+          "cmd": "test \"$(kubectl --context cluster1 exec -n ckad01-db-sec deploy/ckad01-mysql-server -- printenv DB_Password)\" = \"password123\""
+        }
+      ]
+    },
+    {
+      "id": "secret-02",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "FAILED: correct YAML never applied (secret volume)",
+      "mistake_category": "missed_substep",
+      "weight": 6,
+      "target_seconds": 120,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad18-secret",
+        "kubectl create secret generic ckad18-secret -n ckad18-secret --from-literal=token=abc123",
+        "kubectl run tmpl --image=busybox:1.36 --restart=Never --dry-run=client -o yaml -- sleep 3600 > ~/ckad08-dotfile.yaml"
+      ],
+      "task": "Using the pod template at ~/ckad08-dotfile.yaml, create a pod ckad18-secret-pod in namespace ckad18-secret. Define a volume named secret-volume backed by the existing Secret ckad18-secret, and mount it read-only at /etc/secret-volume.",
+      "checks": [
+        "pod ckad18-secret-pod in ckad18-secret, Running",
+        "volume secret-volume with secret.secretName ckad18-secret",
+        "volumeMount at /etc/secret-volume with readOnly: true",
+        "file /etc/secret-volume/token exists"
+      ],
+      "verify": [
+        "k get pod ckad18-secret-pod -n ckad18-secret",
+        "k exec -n ckad18-secret ckad18-secret-pod -- cat /etc/secret-volume/token"
+      ],
+      "fastest_solution": [
+        "cp ~/ckad08-dotfile.yaml s.yaml ; edit metadata.name, add namespace",
+        "add volumes: - name: secret-volume, secret: {secretName: ckad18-secret} ; volumeMounts: - name: secret-volume, mountPath: /etc/secret-volume, readOnly: true",
+        "k apply -f s.yaml && k get pod -n ckad18-secret"
+      ],
+      "traps": [
+        "secret.secretName (not secret.name)",
+        "The secret already exists - don't create a new one",
+        "A question is not done until k get shows the pod"
+      ],
+      "docs_search": "kubernetes.io 'Secrets' -> 'Using Secrets as files from a Pod'",
+      "grade": [
+        {
+          "check": "pod ckad18-secret-pod exists in ckad18-secret on cluster2 and is Running",
+          "cmd": "test \"$(kubectl --context cluster2 get pod ckad18-secret-pod -n ckad18-secret -o jsonpath='{.status.phase}')\" = \"Running\""
+        },
+        {
+          "check": "volume secret-volume is backed by secret ckad18-secret",
+          "cmd": "kubectl --context cluster2 get pod ckad18-secret-pod -n ckad18-secret -o json | jq -e  'any(.spec.volumes[]; .name == \"secret-volume\" and .secret.secretName == \"ckad18-secret\")'"
+        },
+        {
+          "check": "mount of secret-volume at /etc/secret-volume",
+          "cmd": "kubectl --context cluster2 get pod ckad18-secret-pod -n ckad18-secret -o json | jq -e  'any(.spec.containers[0].volumeMounts[]; .name == \"secret-volume\" and .mountPath == \"/etc/secret-volume\")'"
+        },
+        {
+          "check": "that mount is readOnly: true",
+          "cmd": "kubectl --context cluster2 get pod ckad18-secret-pod -n ckad18-secret -o json | jq -e  'any(.spec.containers[0].volumeMounts[]; .name == \"secret-volume\" and .readOnly == true)'"
+        },
+        {
+          "check": "existing secret was not replaced (token still abc123)",
+          "cmd": "test \"$(kubectl --context cluster2 get secret ckad18-secret -n ckad18-secret -o jsonpath='{.data.token}' | base64 -d)\" = \"abc123\""
+        },
+        {
+          "check": "file /etc/secret-volume/token readable in the container",
+          "cmd": "test \"$(kubectl --context cluster2 exec -n ckad18-secret ckad18-secret-pod -- cat /etc/secret-volume/token)\" = \"abc123\""
+        }
+      ]
+    },
+    {
+      "id": "quota-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "FAILED: created on the wrong cluster",
+      "mistake_category": "context",
+      "weight": 3,
+      "target_seconds": 45,
+      "context": "cluster2",
+      "setup": [
+        "(tutor: before this question, make the learner do any question on cluster1 so the context is 'wrong')"
+      ],
+      "task": "Create a ResourceQuota called ckad16-rqc in namespace ckad16-rqc-ns (create it if needed) that allows at most 1 ResourceQuota, 4 pods, requests.cpu 1 and limits.memory 2Gi.",
+      "checks": [
+        "on cluster2 (!)",
+        "hard: resourcequotas=1, pods=4, requests.cpu=1, limits.memory=2Gi"
+      ],
+      "verify": [
+        "k config current-context",
+        "k describe quota ckad16-rqc -n ckad16-rqc-ns"
+      ],
+      "fastest_solution": [
+        "k config use-context cluster2",
+        "k create ns ckad16-rqc-ns",
+        "k create quota ckad16-rqc -n ckad16-rqc-ns --hard=resourcequotas=1,pods=4,requests.cpu=1,limits.memory=2Gi"
+      ],
+      "traps": [
+        "use-context FIRST - this exact question was lost to a leftover context"
+      ],
+      "docs_search": "k create quota -h",
+      "grade": [
+        {
+          "check": "quota ckad16-rqc exists in ckad16-rqc-ns on cluster2",
+          "cmd": "kubectl --context cluster2 get quota ckad16-rqc -n ckad16-rqc-ns"
+        },
+        {
+          "check": "hard limits are exactly resourcequotas=1, pods=4, requests.cpu=1, limits.memory=2Gi",
+          "cmd": "kubectl --context cluster2 get quota ckad16-rqc -n ckad16-rqc-ns -o json | jq -e  '.spec.hard == {\"resourcequotas\": \"1\", \"pods\": \"4\", \"requests.cpu\": \"1\", \"limits.memory\": \"2Gi\"}'"
+        },
+        {
+          "check": "NOT created on cluster1 by mistake",
+          "cmd": "! kubectl --context cluster1 get quota ckad16-rqc -n ckad16-rqc-ns"
+        }
+      ]
+    },
+    {
+      "id": "limitrange-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "Common CKAD: LimitRange (no imperative command)",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 150,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-lr"
+      ],
+      "task": "In namespace ckad-lr create a LimitRange named mem-cpu-defaults so that containers without resources get a default request of cpu 100m / memory 128Mi and a default limit of cpu 500m / memory 256Mi. Containers may not request more than 1 cpu.",
+      "checks": [
+        "type Container",
+        "defaultRequest cpu 100m memory 128Mi",
+        "default cpu 500m memory 256Mi",
+        "max cpu 1",
+        "a new pod without resources gets these values"
+      ],
+      "verify": [
+        "k describe limitrange mem-cpu-defaults -n ckad-lr",
+        "k run t -n ckad-lr --image=nginx && k get pod t -n ckad-lr -o yaml | grep -A6 resources"
+      ],
+      "fastest_solution": [
+        "cat <<EOF | k apply -f -\napiVersion: v1\nkind: LimitRange\nmetadata:\n  name: mem-cpu-defaults\n  namespace: ckad-lr\nspec:\n  limits:\n  - type: Container\n    default:\n      cpu: 500m\n      memory: 256Mi\n    defaultRequest:\n      cpu: 100m\n      memory: 128Mi\n    max:\n      cpu: \"1\"\nEOF"
+      ],
+      "traps": [
+        "'default' = default LIMIT, 'defaultRequest' = default request",
+        "Applies only to pods created after the LimitRange"
+      ],
+      "docs_search": "k explain limitrange.spec.limits",
+      "grade": [
+        {
+          "check": "limitrange mem-cpu-defaults exists in ckad-lr on cluster1",
+          "cmd": "kubectl --context cluster1 get limitrange mem-cpu-defaults -n ckad-lr"
+        },
+        {
+          "check": "default limit cpu 500m memory 256Mi",
+          "cmd": "kubectl --context cluster1 get limitrange mem-cpu-defaults -n ckad-lr -o json | jq -e  '.spec.limits[] | select(.type == \"Container\") | .default.cpu == \"500m\" and .default.memory == \"256Mi\"'"
+        },
+        {
+          "check": "defaultRequest cpu 100m memory 128Mi",
+          "cmd": "kubectl --context cluster1 get limitrange mem-cpu-defaults -n ckad-lr -o json | jq -e  '.spec.limits[] | select(.type == \"Container\") | .defaultRequest.cpu == \"100m\" and .defaultRequest.memory == \"128Mi\"'"
+        },
+        {
+          "check": "max cpu 1",
+          "cmd": "kubectl --context cluster1 get limitrange mem-cpu-defaults -n ckad-lr -o json | jq -e  '.spec.limits[] | select(.type == \"Container\") | .max.cpu == \"1\"'"
+        }
+      ]
+    },
+    {
+      "id": "probe-01",
+      "domain": "Application Observability and Maintenance",
+      "inspired_by": "FAILED: ran out of time on an easy probe question",
+      "mistake_category": "time",
+      "weight": 4,
+      "target_seconds": 60,
+      "context": "cluster1",
+      "setup": [],
+      "task": "Create a new pod with image redis and name ckad-probe and configure it with a livenessProbe running the command ls, with initialDelaySeconds set to 5.",
+      "checks": [
+        "pod ckad-probe, image redis",
+        "livenessProbe.exec.command [ls]",
+        "initialDelaySeconds 5",
+        "pod Running, no restarts"
+      ],
+      "verify": [
+        "k get pod ckad-probe -o yaml | grep -A5 livenessProbe"
+      ],
+      "fastest_solution": [
+        "k run ckad-probe --image=redis $do > probe.yaml",
+        "under the container add:\n    livenessProbe:\n      exec:\n        command: [\"ls\"]\n      initialDelaySeconds: 5",
+        "k apply -f probe.yaml"
+      ],
+      "traps": [
+        "kubectl has no probe flags - generate + 4 lines is the fastest path"
+      ],
+      "docs_search": "k explain pod.spec.containers.livenessProbe",
+      "grade": [
+        {
+          "check": "pod ckad-probe exists in default on cluster1",
+          "cmd": "kubectl --context cluster1 get pod ckad-probe -n default"
+        },
+        {
+          "check": "image redis",
+          "cmd": "test \"$(kubectl --context cluster1 get pod ckad-probe -n default -o jsonpath='{.spec.containers[0].image}')\" = \"redis\""
+        },
+        {
+          "check": "livenessProbe exec command is exactly [ls]",
+          "cmd": "kubectl --context cluster1 get pod ckad-probe -n default -o json | jq -e  '.spec.containers[0].livenessProbe.exec.command == [\"ls\"]'"
+        },
+        {
+          "check": "initialDelaySeconds 5",
+          "cmd": "test \"$(kubectl --context cluster1 get pod ckad-probe -n default -o jsonpath='{.spec.containers[0].livenessProbe.initialDelaySeconds}')\" = \"5\""
+        },
+        {
+          "check": "pod Running with 0 restarts",
+          "cmd": "kubectl --context cluster1 get pod ckad-probe -n default -o json | jq -e  '.status.phase == \"Running\" and .status.containerStatuses[0].restartCount == 0'"
+        }
+      ]
+    },
+    {
+      "id": "probe-02",
+      "domain": "Application Observability and Maintenance",
+      "inspired_by": "Common CKAD: readiness httpGet + liveness tcpSocket",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 180,
+      "context": "cluster2",
+      "setup": [],
+      "task": "Create a deployment api-health with image nginx:1.27 and 2 replicas. Add a readinessProbe doing an HTTP GET on path / port 80 every 5 seconds, failing after 3 attempts, and a livenessProbe that checks TCP port 80 starting after 10 seconds.",
+      "checks": [
+        "readinessProbe.httpGet path / port 80, periodSeconds 5, failureThreshold 3",
+        "livenessProbe.tcpSocket port 80, initialDelaySeconds 10",
+        "2/2 ready"
+      ],
+      "verify": [
+        "k get deploy api-health",
+        "k get deploy api-health -o yaml | grep -A8 -E 'readinessProbe|livenessProbe'"
+      ],
+      "fastest_solution": [
+        "k create deploy api-health --image=nginx:1.27 --replicas=2 $do > d.yaml",
+        "add readinessProbe {httpGet: {path: /, port: 80}, periodSeconds: 5, failureThreshold: 3} and livenessProbe {tcpSocket: {port: 80}, initialDelaySeconds: 10} under the container",
+        "k apply -f d.yaml"
+      ],
+      "traps": [
+        "Probes belong to the container, not the pod spec",
+        "Indentation inside a Deployment is 4 levels deeper than in a Pod"
+      ],
+      "docs_search": "kubernetes.io 'Configure Liveness, Readiness and Startup Probes'",
+      "grade": [
+        {
+          "check": "deployment api-health image nginx:1.27, 2 replicas",
+          "cmd": "kubectl --context cluster2 get deploy api-health -n default -o json | jq -e  '.spec.template.spec.containers[0].image == \"nginx:1.27\" and .spec.replicas == 2'"
+        },
+        {
+          "check": "readinessProbe httpGet path / port 80",
+          "cmd": "kubectl --context cluster2 get deploy api-health -n default -o json | jq -e  '.spec.template.spec.containers[0].readinessProbe.httpGet | .path == \"/\" and (.port | tostring) == \"80\"'"
+        },
+        {
+          "check": "readiness periodSeconds 5 failureThreshold 3",
+          "cmd": "kubectl --context cluster2 get deploy api-health -n default -o json | jq -e  '.spec.template.spec.containers[0].readinessProbe | .periodSeconds == 5 and .failureThreshold == 3'"
+        },
+        {
+          "check": "livenessProbe tcpSocket port 80, initialDelaySeconds 10",
+          "cmd": "kubectl --context cluster2 get deploy api-health -n default -o json | jq -e  '.spec.template.spec.containers[0].livenessProbe | (.tcpSocket.port | tostring) == \"80\" and .initialDelaySeconds == 10'"
+        },
+        {
+          "check": "2/2 ready",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy api-health -n default -o jsonpath='{.status.readyReplicas}')\" = \"2\""
+        }
+      ]
+    },
+    {
+      "id": "debug-01",
+      "domain": "Application Observability and Maintenance",
+      "inspired_by": "Common CKAD: find and fix a broken workload",
+      "mistake_category": "technical",
+      "weight": 7,
+      "target_seconds": 180,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-debug",
+        "kubectl create deploy payments -n ckad-debug --image=nginx:1.27-doesnotexist",
+        "kubectl run worker -n ckad-debug --image=busybox:1.36 -- /bin/sh -c 'echo starting; exit 1'"
+      ],
+      "task": "Two workloads in namespace ckad-debug are not running. Find the reason for each and write one line per workload to ~/debug.txt in the format '<name>: <reason>'. Then fix the deployment payments so that it runs nginx:1.27.",
+      "checks": [
+        "~/debug.txt has a line for payments (image pull / ErrImagePull / ImagePullBackOff) and worker (container exits with code 1 / CrashLoopBackOff)",
+        "payments is 1/1 ready with nginx:1.27"
+      ],
+      "verify": [
+        "cat ~/debug.txt",
+        "k get deploy payments -n ckad-debug"
+      ],
+      "fastest_solution": [
+        "k get pods -n ckad-debug ; k describe pod <payments-pod> -n ckad-debug | tail -20 ; k logs worker -n ckad-debug --previous",
+        "k get events -n ckad-debug --sort-by=.lastTimestamp",
+        "k set image deploy/payments -n ckad-debug nginx=nginx:1.27"
+      ],
+      "traps": [
+        "Container name in 'k set image' is the name inside the pod spec (k create deploy uses the image name without tag: nginx)",
+        "--previous shows logs of the crashed container instance"
+      ],
+      "docs_search": "k set image -h ; k logs -h",
+      "grade": [
+        {
+          "check": "~/debug.txt has a payments line naming the image pull problem",
+          "cmd": "grep -Eiq '^payments:.*(image|pull)' ~/debug.txt"
+        },
+        {
+          "check": "~/debug.txt has a worker line naming the crash / exit code",
+          "cmd": "grep -Eiq '^worker:.*(exit|crash|code|error|backoff)' ~/debug.txt"
+        },
+        {
+          "check": "payments image is exactly nginx:1.27",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy payments -n ckad-debug -o jsonpath='{.spec.template.spec.containers[0].image}')\" = \"nginx:1.27\""
+        },
+        {
+          "check": "payments 1/1 ready",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy payments -n ckad-debug -o jsonpath='{.status.readyReplicas}')\" = \"1\""
+        }
+      ]
+    },
+    {
+      "id": "logs-01",
+      "domain": "Application Observability and Maintenance",
+      "inspired_by": "Common CKAD: logs of one container to a file",
+      "mistake_category": "time",
+      "weight": 3,
+      "target_seconds": 60,
+      "context": "cluster2",
+      "setup": [
+        "kubectl run multi --image=busybox:1.36 --dry-run=client -o yaml -- /bin/sh -c 'while true; do echo main-$(date +%s); sleep 2; done' | sed 's/name: multi$/name: main/' | kubectl apply -f -",
+        "(tutor: optionally add a second container 'helper' via edit before asking)"
+      ],
+      "task": "Save the logs of container main in pod multi to ~/multi.log. Then write the name of the pod using the most CPU in namespace kube-system to ~/top-cpu.txt (only if metrics-server is installed).",
+      "checks": [
+        "~/multi.log contains main-<timestamp> lines",
+        "~/top-cpu.txt contains exactly one pod name"
+      ],
+      "verify": [
+        "head ~/multi.log",
+        "cat ~/top-cpu.txt"
+      ],
+      "fastest_solution": [
+        "k logs multi -c main > ~/multi.log",
+        "k top pod -n kube-system --sort-by=cpu --no-headers | head -1 | awk '{print $1}' > ~/top-cpu.txt"
+      ],
+      "traps": [
+        "-c is required when the pod has more than one container",
+        "Write only the name if only the name is asked for"
+      ],
+      "docs_search": "k logs -h ; k top pod -h",
+      "grade": [
+        {
+          "check": "~/multi.log contains main-<timestamp> lines",
+          "cmd": "grep -Eq '^main-[0-9]+' ~/multi.log"
+        },
+        {
+          "check": "~/multi.log contains only main container output",
+          "cmd": "! grep -Evq '^main-[0-9]+$' ~/multi.log"
+        },
+        {
+          "check": "(needs metrics-server) ~/top-cpu.txt is exactly one existing kube-system pod name",
+          "cmd": "test \"$(wc -w < ~/top-cpu.txt | tr -d ' ')\" = 1 && kubectl --context cluster2 get pod -n kube-system \"$(cat ~/top-cpu.txt)\""
+        }
+      ]
+    },
+    {
+      "id": "sidecar-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: multi-container pod with shared emptyDir",
+      "mistake_category": "time",
+      "weight": 7,
+      "target_seconds": 240,
+      "context": "cluster1",
+      "setup": [],
+      "task": "Create a pod log-app with two containers sharing an emptyDir volume named logs mounted at /var/log/app. Container writer (busybox:1.36) appends the date to /var/log/app/app.log every 5 seconds. Container reader (busybox:1.36) runs 'tail -f /var/log/app/app.log'.",
+      "checks": [
+        "2 containers writer + reader",
+        "emptyDir volume 'logs' mounted in both at /var/log/app",
+        "k logs log-app -c reader shows dates"
+      ],
+      "verify": [
+        "k logs log-app -c reader --tail=3"
+      ],
+      "fastest_solution": [
+        "k run log-app --image=busybox:1.36 $do -- /bin/sh -c 'while true; do date >> /var/log/app/app.log; sleep 5; done' > p.yaml",
+        "rename container to writer; copy the container block as reader with args [/bin/sh, -c, 'tail -f /var/log/app/app.log'] (or command); add volumes: [{name: logs, emptyDir: {}}] and the mount to both",
+        "k apply -f p.yaml"
+      ],
+      "traps": [
+        "Reader may start before the file exists: use 'touch /var/log/app/app.log; tail -f ...' or accept a few restarts",
+        "Native sidecar alternative (1.29+): put reader in initContainers with restartPolicy: Always"
+      ],
+      "docs_search": "kubernetes.io 'Communicate Between Containers in the Same Pod Using a Shared Volume'",
+      "grade": [
+        {
+          "check": "pod log-app has exactly the containers writer and reader (reader may be a native sidecar)",
+          "cmd": "kubectl --context cluster1 get pod log-app -n default -o json | jq -e  '([.spec.containers[].name] + [.spec.initContainers[]? | select(.restartPolicy == \"Always\") | .name]) | sort == [\"reader\",\"writer\"]'"
+        },
+        {
+          "check": "emptyDir volume named logs",
+          "cmd": "kubectl --context cluster1 get pod log-app -n default -o json | jq -e  'any(.spec.volumes[]; .name == \"logs\" and .emptyDir != null)'"
+        },
+        {
+          "check": "both containers mount logs at /var/log/app",
+          "cmd": "kubectl --context cluster1 get pod log-app -n default -o json | jq -e  '[(.spec.containers + (.spec.initContainers // []))[] | select(.name == \"writer\" or .name == \"reader\") | any(.volumeMounts[]?; .name == \"logs\" and .mountPath == \"/var/log/app\")] | (length == 2 and all)'"
+        },
+        {
+          "check": "reader logs show dates being written",
+          "cmd": "kubectl --context cluster1 logs log-app -n default -c reader --tail=5 | grep -Eq '[0-9]{2}:[0-9]{2}:[0-9]{2}'"
+        }
+      ]
+    },
+    {
+      "id": "init-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: init container",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 180,
+      "context": "cluster2",
+      "setup": [],
+      "task": "Create a pod web-init with image nginx:1.27. Add an init container named prep (busybox:1.36) that writes 'hello from init' to /work/index.html. Share the file through an emptyDir volume so nginx serves it from /usr/share/nginx/html.",
+      "checks": [
+        "initContainers[0].name prep",
+        "emptyDir shared, mounted at /work (init) and /usr/share/nginx/html (nginx)",
+        "curl localhost inside the pod returns 'hello from init'"
+      ],
+      "verify": [
+        "k exec web-init -- curl -s localhost"
+      ],
+      "fastest_solution": [
+        "k run web-init --image=nginx:1.27 $do > p.yaml",
+        "add initContainers: [{name: prep, image: busybox:1.36, command: [/bin/sh, -c, 'echo hello from init > /work/index.html'], volumeMounts: [{name: html, mountPath: /work}]}] ; volumes: [{name: html, emptyDir: {}}] ; nginx volumeMounts: [{name: html, mountPath: /usr/share/nginx/html}]",
+        "k apply -f p.yaml"
+      ],
+      "traps": [
+        "initContainers is a sibling of containers under spec"
+      ],
+      "docs_search": "k explain pod.spec.initContainers",
+      "grade": [
+        {
+          "check": "pod web-init main image nginx:1.27",
+          "cmd": "test \"$(kubectl --context cluster2 get pod web-init -n default -o jsonpath='{.spec.containers[0].image}')\" = \"nginx:1.27\""
+        },
+        {
+          "check": "init container named exactly prep with image busybox:1.36",
+          "cmd": "kubectl --context cluster2 get pod web-init -n default -o json | jq -e  '.spec.initContainers[0].name == \"prep\" and .spec.initContainers[0].image == \"busybox:1.36\"'"
+        },
+        {
+          "check": "shared emptyDir volume",
+          "cmd": "kubectl --context cluster2 get pod web-init -n default -o json | jq -e  'any(.spec.volumes[]; .emptyDir != null)'"
+        },
+        {
+          "check": "nginx mounts it at /usr/share/nginx/html",
+          "cmd": "kubectl --context cluster2 get pod web-init -n default -o json | jq -e  'any(.spec.containers[0].volumeMounts[]; .mountPath == \"/usr/share/nginx/html\")'"
+        },
+        {
+          "check": "curl localhost returns exactly 'hello from init'",
+          "cmd": "test \"$(kubectl --context cluster2 exec web-init -n default -- curl -s localhost)\" = \"hello from init\""
+        }
+      ]
+    },
+    {
+      "id": "deploy-rollout-01",
+      "domain": "Application Deployment",
+      "inspired_by": "Common CKAD: rolling update strategy + rollback",
+      "mistake_category": "time",
+      "weight": 7,
+      "target_seconds": 180,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-roll"
+      ],
+      "task": "In namespace ckad-roll create deployment frontend with image nginx:1.25 and 4 replicas, using a rolling update with maxSurge 1 and maxUnavailable 0. Update the image to nginx:1.27, then roll back to the previous version. Write the image currently running to ~/frontend-image.txt.",
+      "checks": [
+        "strategy.rollingUpdate maxSurge 1 maxUnavailable 0",
+        "rollout history has at least 3 revisions",
+        "current image nginx:1.25",
+        "~/frontend-image.txt contains nginx:1.25"
+      ],
+      "verify": [
+        "k rollout history deploy/frontend -n ckad-roll",
+        "k get deploy frontend -n ckad-roll -o jsonpath='{.spec.template.spec.containers[0].image}'"
+      ],
+      "fastest_solution": [
+        "k create deploy frontend -n ckad-roll --image=nginx:1.25 --replicas=4 $do > d.yaml ; set strategy.rollingUpdate {maxSurge: 1, maxUnavailable: 0} ; k apply -f d.yaml",
+        "k set image deploy/frontend -n ckad-roll nginx=nginx:1.27 && k rollout status deploy/frontend -n ckad-roll",
+        "k rollout undo deploy/frontend -n ckad-roll",
+        "k get deploy frontend -n ckad-roll -o jsonpath='{.spec.template.spec.containers[0].image}' > ~/frontend-image.txt"
+      ],
+      "traps": [
+        "k patch also works for the strategy: k patch deploy frontend -n ckad-roll -p '{\"spec\":{\"strategy\":{\"rollingUpdate\":{\"maxSurge\":1,\"maxUnavailable\":0}}}}'"
+      ],
+      "docs_search": "k rollout -h ; k explain deploy.spec.strategy",
+      "grade": [
+        {
+          "check": "deployment frontend 4/4 ready",
+          "cmd": "kubectl --context cluster1 get deploy frontend -n ckad-roll -o json | jq -e  '.spec.replicas == 4 and .status.readyReplicas == 4'"
+        },
+        {
+          "check": "rollingUpdate maxSurge 1 maxUnavailable 0",
+          "cmd": "kubectl --context cluster1 get deploy frontend -n ckad-roll -o json | jq -e  '.spec.strategy.rollingUpdate | (.maxSurge | tostring) == \"1\" and (.maxUnavailable | tostring) == \"0\"'"
+        },
+        {
+          "check": "image rolled back to nginx:1.25",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy frontend -n ckad-roll -o jsonpath='{.spec.template.spec.containers[0].image}')\" = \"nginx:1.25\""
+        },
+        {
+          "check": "an update + undo happened (revision >= 3)",
+          "cmd": "kubectl --context cluster1 get deploy frontend -n ckad-roll -o json | jq -e  '.metadata.annotations[\"deployment.kubernetes.io/revision\"] | tonumber >= 3'"
+        },
+        {
+          "check": "~/frontend-image.txt contains exactly nginx:1.25",
+          "cmd": "test \"$(tr -d '[:space:]' < ~/frontend-image.txt)\" = \"nginx:1.25\""
+        }
+      ]
+    },
+    {
+      "id": "canary-01",
+      "domain": "Application Deployment",
+      "inspired_by": "Common CKAD: canary via shared labels",
+      "mistake_category": "technical",
+      "weight": 7,
+      "target_seconds": 240,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad-canary",
+        "kubectl create deploy web-v1 -n ckad-canary --image=nginx:1.25 --replicas=4 --dry-run=client -o yaml | sed 's/app: web-v1/app: web/g' | kubectl apply -f -",
+        "kubectl create service clusterip web -n ckad-canary --tcp=80:80"
+      ],
+      "task": "Service web in ckad-canary sends traffic to deployment web-v1 (4 replicas). Create a canary deployment web-v2 with image nginx:1.27 so that roughly 20% of the Service's traffic goes to v2. Do not change the Service.",
+      "checks": [
+        "web-v2 has 1 replica, web-v1 still 4",
+        "web-v2 pod template has label app=web (selector of the Service)",
+        "Service has 5 endpoints"
+      ],
+      "verify": [
+        "k get endpointslices -n ckad-canary -l kubernetes.io/service-name=web",
+        "k get pods -n ckad-canary --show-labels"
+      ],
+      "fastest_solution": [
+        "k create deploy web-v2 -n ckad-canary --image=nginx:1.27 --replicas=1 $do | sed 's/app: web-v2/app: web/g' | k apply -f -"
+      ],
+      "traps": [
+        "Both deployments need distinct selectors if they share a namespace - here they share app=web which works but 'k create deploy' would fight if both use identical selectors and templates; add a version label for clarity in real life"
+      ],
+      "docs_search": "kubernetes.io 'Managing Workloads' -> 'Canary deployments'",
+      "grade": [
+        {
+          "check": "web-v1 still 4 replicas",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy web-v1 -n ckad-canary -o jsonpath='{.spec.replicas}')\" = \"4\""
+        },
+        {
+          "check": "web-v2 has 1 replica with image nginx:1.27",
+          "cmd": "kubectl --context cluster2 get deploy web-v2 -n ckad-canary -o json | jq -e  '.spec.replicas == 1 and .spec.template.spec.containers[0].image == \"nginx:1.27\"'"
+        },
+        {
+          "check": "web-v2 pods carry app=web",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy web-v2 -n ckad-canary -o jsonpath='{.spec.template.metadata.labels.app}')\" = \"web\""
+        },
+        {
+          "check": "Service selector unchanged (exactly app=web)",
+          "cmd": "kubectl --context cluster2 get svc web -n ckad-canary -o json | jq -e  '.spec.selector == {\"app\": \"web\"}'"
+        },
+        {
+          "check": "Service has 5 ready endpoints",
+          "cmd": "kubectl --context cluster2 get endpointslices -n ckad-canary -l kubernetes.io/service-name=web -o json | jq -e '[.items[].endpoints[]? | select(.conditions.ready == true)] | length == 5'"
+        }
+      ]
+    },
+    {
+      "id": "bluegreen-01",
+      "domain": "Application Deployment",
+      "inspired_by": "Common CKAD: switch Service selector",
+      "mistake_category": "time",
+      "weight": 4,
+      "target_seconds": 60,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create deploy blue --image=nginx:1.25 --dry-run=client -o yaml | sed 's/app: blue/version: blue/g' | kubectl apply -f -",
+        "kubectl create deploy green --image=nginx:1.27 --dry-run=client -o yaml | sed 's/app: green/version: green/g' | kubectl apply -f -",
+        "kubectl create service clusterip shop --tcp=80:80 --dry-run=client -o yaml | sed 's/app: shop/version: blue/' | kubectl apply -f -"
+      ],
+      "task": "Service shop currently sends traffic to the blue deployment. Switch all traffic to green without recreating the Service.",
+      "checks": [
+        "svc shop selector is version=green only",
+        "endpoints are the green pod IP"
+      ],
+      "verify": [
+        "k get svc shop -o jsonpath='{.spec.selector}'",
+        "k get endpointslices -l kubernetes.io/service-name=shop"
+      ],
+      "fastest_solution": [
+        "k patch svc shop -p '{\"spec\":{\"selector\":{\"version\":\"green\"}}}'"
+      ],
+      "traps": [
+        "k set selector svc shop version=green also works (replaces the whole selector)"
+      ],
+      "docs_search": "k patch -h ; k set selector -h",
+      "grade": [
+        {
+          "check": "svc shop selector is exactly version=green",
+          "cmd": "kubectl --context cluster1 get svc shop -n default -o json | jq -e  '.spec.selector == {\"version\": \"green\"}'"
+        },
+        {
+          "check": "endpoints are exactly the green pod IPs",
+          "cmd": "test \"$(kubectl --context cluster1 get endpointslices -n default -l kubernetes.io/service-name=shop -o jsonpath='{.items[*].endpoints[*].addresses[*]}' | tr ' ' '\\n' | sort)\" = \"$(kubectl --context cluster1 get pods -n default -l version=green -o jsonpath='{.items[*].status.podIP}' | tr ' ' '\\n' | sort)\""
+        }
+      ]
+    },
+    {
+      "id": "netpol-01",
+      "domain": "Services and Networking",
+      "inspired_by": "Mock exam: put namespaceSelector directly under spec",
+      "mistake_category": "technical",
+      "weight": 4,
+      "target_seconds": 60,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad12-svcn"
+      ],
+      "task": "Create a NetworkPolicy deny-all-svcn in namespace ckad12-svcn that denies all ingress and egress traffic for all pods in the namespace.",
+      "checks": [
+        "namespace ckad12-svcn",
+        "podSelector {}",
+        "policyTypes Ingress and Egress",
+        "no ingress/egress rules"
+      ],
+      "verify": [
+        "k describe netpol deny-all-svcn -n ckad12-svcn"
+      ],
+      "fastest_solution": [
+        "cat <<EOF | k apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: deny-all-svcn\n  namespace: ckad12-svcn\nspec:\n  podSelector: {}\n  policyTypes: [Ingress, Egress]\nEOF"
+      ],
+      "traps": [
+        "A NetworkPolicy applies to its own namespace - there is no spec.namespaceSelector",
+        "namespaceSelector only appears inside from/to rules"
+      ],
+      "docs_search": "kubernetes.io 'Network Policies' -> 'Default policies'",
+      "grade": [
+        {
+          "check": "netpol deny-all-svcn exists in ckad12-svcn on cluster1",
+          "cmd": "kubectl --context cluster1 get netpol deny-all-svcn -n ckad12-svcn"
+        },
+        {
+          "check": "podSelector is {} (all pods)",
+          "cmd": "kubectl --context cluster1 get netpol deny-all-svcn -n ckad12-svcn -o json | jq -e  '.spec.podSelector == {}'"
+        },
+        {
+          "check": "policyTypes exactly Ingress and Egress",
+          "cmd": "kubectl --context cluster1 get netpol deny-all-svcn -n ckad12-svcn -o json | jq -e  '.spec.policyTypes | sort == [\"Egress\",\"Ingress\"]'"
+        },
+        {
+          "check": "no ingress or egress rules",
+          "cmd": "kubectl --context cluster1 get netpol deny-all-svcn -n ckad12-svcn -o json | jq -e  '(.spec.ingress // []) == [] and (.spec.egress // []) == []'"
+        }
+      ]
+    },
+    {
+      "id": "netpol-02",
+      "domain": "Services and Networking",
+      "inspired_by": "Common CKAD: allow from labelled pods in labelled namespace (AND vs OR)",
+      "mistake_category": "technical",
+      "weight": 8,
+      "target_seconds": 300,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad-db ; kubectl create ns ckad-api ; kubectl label ns ckad-api team=backend",
+        "kubectl run db -n ckad-db --image=redis:7 -l app=db --port=6379",
+        "kubectl run api -n ckad-api --image=busybox:1.36 -l app=backend -- sleep 3600",
+        "kubectl run other -n ckad-api --image=busybox:1.36 -l app=other -- sleep 3600"
+      ],
+      "task": "Create a NetworkPolicy db-allow-backend in namespace ckad-db that allows ingress to pods with label app=db only on TCP port 6379 and only from pods with label app=backend that run in namespaces labelled team=backend. All other ingress to the db pods must be blocked.",
+      "checks": [
+        "podSelector app=db",
+        "ONE from-entry containing BOTH namespaceSelector team=backend AND podSelector app=backend",
+        "ports TCP 6379",
+        "api pod can connect, other pod cannot"
+      ],
+      "verify": [
+        "k exec -n ckad-api api -- sh -c \"echo PING | nc -w 2 $(k get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\"   (expect +PONG)",
+        "k exec -n ckad-api other -- sh -c \"echo PING | nc -w 2 $(k get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\"   (expect nothing / timeout)"
+      ],
+      "fastest_solution": [
+        "cat <<EOF | k apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: db-allow-backend\n  namespace: ckad-db\nspec:\n  podSelector:\n    matchLabels:\n      app: db\n  policyTypes: [Ingress]\n  ingress:\n  - from:\n    - namespaceSelector:\n        matchLabels:\n          team: backend\n      podSelector:\n        matchLabels:\n          app: backend\n    ports:\n    - protocol: TCP\n      port: 6379\nEOF"
+      ],
+      "traps": [
+        "'- namespaceSelector' and '- podSelector' as two list items = OR (too open)",
+        "Same list item (no dash before podSelector) = AND"
+      ],
+      "docs_search": "kubernetes.io 'Network Policies' -> 'Behavior of to and from selectors'",
+      "grade": [
+        {
+          "check": "netpol db-allow-backend exists in ckad-db on cluster2",
+          "cmd": "kubectl --context cluster2 get netpol db-allow-backend -n ckad-db"
+        },
+        {
+          "check": "podSelector exactly app=db",
+          "cmd": "kubectl --context cluster2 get netpol db-allow-backend -n ckad-db -o json | jq -e  '.spec.podSelector.matchLabels == {\"app\": \"db\"}'"
+        },
+        {
+          "check": "exactly one rule with ONE from-entry holding BOTH selectors (AND)",
+          "cmd": "kubectl --context cluster2 get netpol db-allow-backend -n ckad-db -o json | jq -e  '.spec.ingress | length == 1 and (.[0].from == [{\"namespaceSelector\": {\"matchLabels\": {\"team\": \"backend\"}}, \"podSelector\": {\"matchLabels\": {\"app\": \"backend\"}}}])'"
+        },
+        {
+          "check": "ports exactly TCP 6379",
+          "cmd": "kubectl --context cluster2 get netpol db-allow-backend -n ckad-db -o json | jq -e  '.spec.ingress[0].ports == [{\"protocol\": \"TCP\", \"port\": 6379}]'"
+        },
+        {
+          "check": "api pod (app=backend, team=backend ns) reaches redis",
+          "cmd": "kubectl --context cluster2 exec -n ckad-api api -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep -q PONG"
+        },
+        {
+          "check": "other pod (app=other) is blocked",
+          "cmd": "! kubectl --context cluster2 exec -n ckad-api other -- sh -c \"echo PING | nc -w 2 $(kubectl --context cluster2 get pod db -n ckad-db -o jsonpath='{.status.podIP}') 6379\" | grep -q PONG"
+        }
+      ]
+    },
+    {
+      "id": "ingress-01",
+      "domain": "Services and Networking",
+      "inspired_by": "Common CKAD: Ingress with host and path",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 90,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-ing",
+        "kubectl create deploy api -n ckad-ing --image=nginx:1.27 --port=80",
+        "kubectl expose deploy api -n ckad-ing --name=api-svc --port=8080 --target-port=80"
+      ],
+      "task": "In namespace ckad-ing create an Ingress api-ing with ingress class nginx that routes host app.example.com, path /api (prefix match) to service api-svc on port 8080.",
+      "checks": [
+        "ingressClassName nginx",
+        "host app.example.com",
+        "path /api pathType Prefix",
+        "backend api-svc:8080"
+      ],
+      "verify": [
+        "k describe ingress api-ing -n ckad-ing"
+      ],
+      "fastest_solution": [
+        "k create ingress api-ing -n ckad-ing --class=nginx --rule=\"app.example.com/api*=api-svc:8080\""
+      ],
+      "traps": [
+        "The trailing * in the rule makes pathType Prefix; without it it is Exact"
+      ],
+      "docs_search": "k create ingress -h",
+      "grade": [
+        {
+          "check": "ingress api-ing exists in ckad-ing on cluster1",
+          "cmd": "kubectl --context cluster1 get ingress api-ing -n ckad-ing"
+        },
+        {
+          "check": "ingressClassName nginx",
+          "cmd": "test \"$(kubectl --context cluster1 get ingress api-ing -n ckad-ing -o jsonpath='{.spec.ingressClassName}')\" = \"nginx\""
+        },
+        {
+          "check": "host app.example.com",
+          "cmd": "test \"$(kubectl --context cluster1 get ingress api-ing -n ckad-ing -o jsonpath='{.spec.rules[0].host}')\" = \"app.example.com\""
+        },
+        {
+          "check": "path /api with pathType Prefix",
+          "cmd": "kubectl --context cluster1 get ingress api-ing -n ckad-ing -o json | jq -e  '.spec.rules[0].http.paths[0] | .path == \"/api\" and .pathType == \"Prefix\"'"
+        },
+        {
+          "check": "backend api-svc port 8080",
+          "cmd": "kubectl --context cluster1 get ingress api-ing -n ckad-ing -o json | jq -e  '.spec.rules[0].http.paths[0].backend.service | .name == \"api-svc\" and .port.number == 8080'"
+        }
+      ]
+    },
+    {
+      "id": "rbac-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "Common CKAD: ServiceAccount + Role + RoleBinding",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 120,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad-rbac",
+        "kubectl create deploy monitor -n ckad-rbac --image=nginx"
+      ],
+      "task": "In namespace ckad-rbac create a ServiceAccount pod-watcher that can get, list and watch pods in that namespace only (Role pod-reader, RoleBinding pod-reader-binding). Make deployment monitor use this ServiceAccount.",
+      "checks": [
+        "sa pod-watcher",
+        "role pod-reader verbs get,list,watch on pods",
+        "rolebinding links role to ckad-rbac:pod-watcher",
+        "deploy monitor serviceAccountName pod-watcher",
+        "can-i list pods = yes, can-i delete pods = no"
+      ],
+      "verify": [
+        "k auth can-i list pods -n ckad-rbac --as=system:serviceaccount:ckad-rbac:pod-watcher",
+        "k auth can-i delete pods -n ckad-rbac --as=system:serviceaccount:ckad-rbac:pod-watcher"
+      ],
+      "fastest_solution": [
+        "k create sa pod-watcher -n ckad-rbac",
+        "k create role pod-reader -n ckad-rbac --verb=get,list,watch --resource=pods",
+        "k create rolebinding pod-reader-binding -n ckad-rbac --role=pod-reader --serviceaccount=ckad-rbac:pod-watcher",
+        "k set serviceaccount deploy/monitor pod-watcher -n ckad-rbac"
+      ],
+      "traps": [
+        "--serviceaccount takes <namespace>:<name>",
+        "Role/RoleBinding = one namespace; ClusterRole/ClusterRoleBinding = cluster-wide"
+      ],
+      "docs_search": "k create role -h ; k create rolebinding -h",
+      "grade": [
+        {
+          "check": "serviceaccount pod-watcher exists in ckad-rbac on cluster2",
+          "cmd": "kubectl --context cluster2 get sa pod-watcher -n ckad-rbac"
+        },
+        {
+          "check": "role pod-reader: exactly get/list/watch on pods",
+          "cmd": "kubectl --context cluster2 get role pod-reader -n ckad-rbac -o json | jq -e  '(.rules | length == 1) and (.rules[0].verbs | sort) == [\"get\",\"list\",\"watch\"] and .rules[0].resources == [\"pods\"]'"
+        },
+        {
+          "check": "rolebinding pod-reader-binding -> Role pod-reader -> sa ckad-rbac/pod-watcher",
+          "cmd": "kubectl --context cluster2 get rolebinding pod-reader-binding -n ckad-rbac -o json | jq -e  '.roleRef.kind == \"Role\" and .roleRef.name == \"pod-reader\" and any(.subjects[]; .kind == \"ServiceAccount\" and .name == \"pod-watcher\" and .namespace == \"ckad-rbac\")'"
+        },
+        {
+          "check": "sa CAN list pods in ckad-rbac",
+          "cmd": "kubectl --context cluster2 auth can-i list pods -n ckad-rbac --as=system:serviceaccount:ckad-rbac:pod-watcher"
+        },
+        {
+          "check": "sa can NOT delete pods",
+          "cmd": "! kubectl --context cluster2 auth can-i delete pods -n ckad-rbac --as=system:serviceaccount:ckad-rbac:pod-watcher"
+        },
+        {
+          "check": "sa can NOT list pods in default (namespaced only)",
+          "cmd": "! kubectl --context cluster2 auth can-i list pods -n default --as=system:serviceaccount:ckad-rbac:pod-watcher"
+        },
+        {
+          "check": "deployment monitor uses serviceAccountName pod-watcher",
+          "cmd": "test \"$(kubectl --context cluster2 get deploy monitor -n ckad-rbac -o jsonpath='{.spec.template.spec.serviceAccountName}')\" = \"pod-watcher\""
+        }
+      ]
+    },
+    {
+      "id": "secctx-01",
+      "domain": "Application Environment, Configuration and Security",
+      "inspired_by": "Common CKAD: securityContext pod vs container level",
+      "mistake_category": "technical",
+      "weight": 6,
+      "target_seconds": 180,
+      "context": "cluster1",
+      "setup": [],
+      "task": "Create a pod secure-app with image busybox:1.36 running 'sleep 3600'. All processes must run as user 1000 and group 3000, mounted volumes get group 2000. The container must not allow privilege escalation, must have a read-only root filesystem, and must get the capability NET_ADMIN.",
+      "checks": [
+        "pod-level securityContext runAsUser 1000, runAsGroup 3000, fsGroup 2000",
+        "container-level allowPrivilegeEscalation false, readOnlyRootFilesystem true, capabilities.add [NET_ADMIN]",
+        "k exec secure-app -- id shows uid=1000 gid=3000"
+      ],
+      "verify": [
+        "k exec secure-app -- id"
+      ],
+      "fastest_solution": [
+        "k run secure-app --image=busybox:1.36 $do -- sleep 3600 > p.yaml",
+        "spec.securityContext: {runAsUser: 1000, runAsGroup: 3000, fsGroup: 2000}",
+        "containers[0].securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {add: [NET_ADMIN]}}",
+        "k apply -f p.yaml"
+      ],
+      "traps": [
+        "capabilities, allowPrivilegeEscalation and readOnlyRootFilesystem exist ONLY at container level",
+        "fsGroup exists only at pod level"
+      ],
+      "docs_search": "k explain pod.spec.securityContext ; k explain pod.spec.containers.securityContext",
+      "grade": [
+        {
+          "check": "pod-level runAsUser 1000, runAsGroup 3000, fsGroup 2000",
+          "cmd": "kubectl --context cluster1 get pod secure-app -n default -o json | jq -e  '.spec.securityContext | .runAsUser == 1000 and .runAsGroup == 3000 and .fsGroup == 2000'"
+        },
+        {
+          "check": "container allowPrivilegeEscalation false",
+          "cmd": "kubectl --context cluster1 get pod secure-app -n default -o json | jq -e  '.spec.containers[0].securityContext.allowPrivilegeEscalation == false'"
+        },
+        {
+          "check": "container readOnlyRootFilesystem true",
+          "cmd": "kubectl --context cluster1 get pod secure-app -n default -o json | jq -e  '.spec.containers[0].securityContext.readOnlyRootFilesystem == true'"
+        },
+        {
+          "check": "container capabilities.add exactly [NET_ADMIN]",
+          "cmd": "kubectl --context cluster1 get pod secure-app -n default -o json | jq -e  '.spec.containers[0].securityContext.capabilities.add == [\"NET_ADMIN\"]'"
+        },
+        {
+          "check": "id in the container shows uid=1000 gid=3000",
+          "cmd": "kubectl --context cluster1 exec secure-app -n default -- id | grep -q 'uid=1000 gid=3000'"
+        }
+      ]
+    },
+    {
+      "id": "crd-01",
+      "domain": "Application Deployment",
+      "inspired_by": "FAILED: apiVersion = CRD name; field names copied from describe",
+      "mistake_category": "technical",
+      "weight": 5,
+      "target_seconds": 120,
+      "context": "cluster2",
+      "setup": [
+        "cat <<'EOF' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: animes.animes.k8s.io\nspec:\n  group: animes.k8s.io\n  scope: Namespaced\n  names:\n    plural: animes\n    singular: anime\n    kind: Anime\n    shortNames: [an]\n  versions:\n  - name: v1alpha1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              animeName:\n                type: string\n              episodeCount:\n                type: integer\n                minimum: 24\n                maximum: 52\nEOF"
+      ],
+      "task": "A CRD for animes is installed. Create a resource named death-note in namespace default with anime name 'Death Note' and episode count 37. (Tutor: show the learner only 'kubectl describe crd' style field names with spaces, e.g. 'Anime Name', 'Episode Count'.)",
+      "checks": [
+        "apiVersion animes.k8s.io/v1alpha1",
+        "kind Anime",
+        "spec.animeName 'Death Note'",
+        "spec.episodeCount 37"
+      ],
+      "verify": [
+        "k get an death-note -o yaml"
+      ],
+      "fastest_solution": [
+        "k api-resources | grep -i anime   (APIVERSION + KIND columns)",
+        "k explain anime.spec   (real field names)",
+        "cat <<EOF | k apply -f -\napiVersion: animes.k8s.io/v1alpha1\nkind: Anime\nmetadata:\n  name: death-note\nspec:\n  animeName: Death Note\n  episodeCount: 37\nEOF"
+      ],
+      "traps": [
+        "CRD name = <plural>.<group>; apiVersion uses only the group",
+        "describe shows 'Anime Name' but the field is animeName",
+        "episodeCount outside 24-52 is rejected by validation"
+      ],
+      "docs_search": "k api-resources ; k explain <kind>.spec",
+      "grade": [
+        {
+          "check": "Anime death-note exists in default on cluster2",
+          "cmd": "kubectl --context cluster2 get anime death-note -n default"
+        },
+        {
+          "check": "apiVersion exactly animes.k8s.io/v1alpha1",
+          "cmd": "kubectl --context cluster2 get anime death-note -n default -o json | jq -e  '.apiVersion == \"animes.k8s.io/v1alpha1\"'"
+        },
+        {
+          "check": "spec is exactly animeName 'Death Note', episodeCount 37 (integer)",
+          "cmd": "kubectl --context cluster2 get anime death-note -n default -o json | jq -e  '.spec == {\"animeName\": \"Death Note\", \"episodeCount\": 37}'"
+        }
+      ]
+    },
+    {
+      "id": "pvc-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: PVC + pod mount",
+      "mistake_category": "time",
+      "weight": 6,
+      "target_seconds": 150,
+      "context": "cluster1",
+      "setup": [],
+      "task": "Create a PersistentVolumeClaim data-pvc requesting 1Gi with access mode ReadWriteOnce using the default storage class. Create a pod data-pod with image nginx:1.27 that mounts it at /usr/share/nginx/html.",
+      "checks": [
+        "pvc Bound, 1Gi, RWO",
+        "pod mounts claimName data-pvc at /usr/share/nginx/html",
+        "pod Running"
+      ],
+      "verify": [
+        "k get pvc data-pvc",
+        "k get pod data-pod"
+      ],
+      "fastest_solution": [
+        "cat <<EOF | k apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: data-pvc\nspec:\n  accessModes: [ReadWriteOnce]\n  resources:\n    requests:\n      storage: 1Gi\nEOF",
+        "k run data-pod --image=nginx:1.27 $do > p.yaml ; add volumes: [{name: data, persistentVolumeClaim: {claimName: data-pvc}}] and volumeMounts: [{name: data, mountPath: /usr/share/nginx/html}] ; k apply -f p.yaml"
+      ],
+      "traps": [
+        "With WaitForFirstConsumer the PVC stays Pending until a pod uses it - that is normal"
+      ],
+      "docs_search": "kubernetes.io 'Configure a Pod to Use a PersistentVolume for Storage'",
+      "grade": [
+        {
+          "check": "pvc data-pvc Bound",
+          "cmd": "test \"$(kubectl --context cluster1 get pvc data-pvc -n default -o jsonpath='{.status.phase}')\" = \"Bound\""
+        },
+        {
+          "check": "pvc requests exactly 1Gi ReadWriteOnce",
+          "cmd": "kubectl --context cluster1 get pvc data-pvc -n default -o json | jq -e  '.spec.resources.requests.storage == \"1Gi\" and .spec.accessModes == [\"ReadWriteOnce\"]'"
+        },
+        {
+          "check": "pod data-pod uses claimName data-pvc",
+          "cmd": "kubectl --context cluster1 get pod data-pod -n default -o json | jq -e  'any(.spec.volumes[]; .persistentVolumeClaim.claimName == \"data-pvc\")'"
+        },
+        {
+          "check": "mounted at /usr/share/nginx/html",
+          "cmd": "kubectl --context cluster1 get pod data-pod -n default -o json | jq -e  '. as $p | ($p.spec.volumes[] | select(.persistentVolumeClaim.claimName == \"data-pvc\") | .name) as $v | any($p.spec.containers[0].volumeMounts[]; .name == $v and .mountPath == \"/usr/share/nginx/html\")'"
+        },
+        {
+          "check": "pod Running",
+          "cmd": "test \"$(kubectl --context cluster1 get pod data-pod -n default -o jsonpath='{.status.phase}')\" = \"Running\""
+        }
+      ]
+    },
+    {
+      "id": "deprecation-01",
+      "domain": "Application Deployment",
+      "inspired_by": "Mock exam: broken apiVersion in Helm template",
+      "mistake_category": "technical",
+      "weight": 4,
+      "target_seconds": 120,
+      "context": "cluster2",
+      "setup": [
+        "cat > ~/old.yaml <<'EOF'\napiVersion: extensions/v1beta1\nkind: Ingress\nmetadata:\n  name: legacy-ing\nspec:\n  rules:\n  - http:\n      paths:\n      - path: /\n        backend:\n          serviceName: legacy-svc\n          servicePort: 80\nEOF"
+      ],
+      "task": "The manifest ~/old.yaml uses a removed API version. Fix it so it applies on this cluster without changing its routing, and apply it.",
+      "checks": [
+        "apiVersion networking.k8s.io/v1",
+        "pathType set (Prefix)",
+        "backend.service.name legacy-svc, backend.service.port.number 80",
+        "ingress legacy-ing exists"
+      ],
+      "verify": [
+        "k get ingress legacy-ing -o yaml"
+      ],
+      "fastest_solution": [
+        "k api-resources | grep -i ingress ; k explain ingress.spec.rules.http.paths.backend",
+        "rewrite backend as service: {name: legacy-svc, port: {number: 80}} and add pathType: Prefix ; k apply -f ~/old.yaml"
+      ],
+      "traps": [
+        "v1 Ingress requires pathType",
+        "Field shape changed: serviceName/servicePort -> service.name/service.port.number"
+      ],
+      "docs_search": "kubernetes.io 'Deprecated API Migration Guide'",
+      "grade": [
+        {
+          "check": "~/old.yaml uses apiVersion networking.k8s.io/v1",
+          "cmd": "grep -Eq '^apiVersion: networking.k8s.io/v1\\s*$' ~/old.yaml"
+        },
+        {
+          "check": "ingress legacy-ing exists on cluster2",
+          "cmd": "kubectl --context cluster2 get ingress legacy-ing -n default"
+        },
+        {
+          "check": "path / with pathType Prefix",
+          "cmd": "kubectl --context cluster2 get ingress legacy-ing -n default -o json | jq -e  '.spec.rules[0].http.paths[0] | .path == \"/\" and .pathType == \"Prefix\"'"
+        },
+        {
+          "check": "backend service legacy-svc port.number 80",
+          "cmd": "kubectl --context cluster2 get ingress legacy-ing -n default -o json | jq -e  '.spec.rules[0].http.paths[0].backend.service | .name == \"legacy-svc\" and .port.number == 80'"
+        }
+      ]
+    },
+    {
+      "id": "image-01",
+      "domain": "Application Design and Build",
+      "inspired_by": "Common CKAD: build and export an image",
+      "mistake_category": "time",
+      "weight": 4,
+      "target_seconds": 120,
+      "context": "local",
+      "setup": [
+        "mkdir -p ~/myapp && printf 'FROM nginx:1.27\\nRUN echo hello > /usr/share/nginx/html/index.html\\n' > ~/myapp/Dockerfile"
+      ],
+      "task": "Build an image from ~/myapp/Dockerfile tagged my-app:1.0 and save it as an OCI/docker archive at ~/my-app.tar.",
+      "checks": [
+        "image my-app:1.0 exists locally",
+        "~/my-app.tar exists and contains it"
+      ],
+      "verify": [
+        "docker images my-app",
+        "ls -l ~/my-app.tar"
+      ],
+      "fastest_solution": [
+        "docker build -t my-app:1.0 ~/myapp",
+        "docker save my-app:1.0 -o ~/my-app.tar"
+      ],
+      "traps": [
+        "The exam may use podman - same syntax: podman build -t ... ; podman save ... -o ..."
+      ],
+      "docs_search": "docker build --help ; docker save --help",
+      "grade": [
+        {
+          "check": "image my-app:1.0 exists locally",
+          "cmd": "docker image inspect my-app:1.0"
+        },
+        {
+          "check": "~/my-app.tar exists and is not empty",
+          "cmd": "test -s ~/my-app.tar"
+        },
+        {
+          "check": "archive contains the tag my-app:1.0",
+          "cmd": "tar -xOf ~/my-app.tar manifest.json | grep -q 'my-app:1.0'"
+        }
+      ]
+    },
+    {
+      "id": "kustomize-01",
+      "domain": "Application Deployment",
+      "inspired_by": "Common CKAD: Kustomize overlay",
+      "mistake_category": "time",
+      "weight": 5,
+      "target_seconds": 180,
+      "context": "cluster1",
+      "setup": [
+        "mkdir -p ~/kz/base ~/kz/prod && kubectl create deploy web --image=nginx:1.25 --dry-run=client -o yaml > ~/kz/base/deploy.yaml && printf 'resources:\\n- deploy.yaml\\n' > ~/kz/base/kustomization.yaml"
+      ],
+      "task": "Create a prod overlay in ~/kz/prod based on ~/kz/base that deploys into namespace ckad-prod, uses image nginx:1.27, runs 3 replicas and prefixes names with prod-. Apply it.",
+      "checks": [
+        "deployment prod-web in ckad-prod",
+        "image nginx:1.27",
+        "3 replicas"
+      ],
+      "verify": [
+        "k kustomize ~/kz/prod",
+        "k get deploy -n ckad-prod"
+      ],
+      "fastest_solution": [
+        "k create ns ckad-prod",
+        "printf 'resources:\\n- ../base\\nnamespace: ckad-prod\\nnamePrefix: prod-\\nimages:\\n- name: nginx\\n  newTag: \"1.27\"\\nreplicas:\\n- name: web\\n  count: 3\\n' > ~/kz/prod/kustomization.yaml",
+        "k apply -k ~/kz/prod"
+      ],
+      "traps": [
+        "replicas[].name uses the ORIGINAL name (web), not the prefixed one",
+        "k kustomize <dir> renders without applying - check first"
+      ],
+      "docs_search": "kubernetes.io 'Declarative Management of Kubernetes Objects Using Kustomize'",
+      "grade": [
+        {
+          "check": "deployment prod-web in ckad-prod on cluster1",
+          "cmd": "kubectl --context cluster1 get deploy prod-web -n ckad-prod"
+        },
+        {
+          "check": "image nginx:1.27",
+          "cmd": "test \"$(kubectl --context cluster1 get deploy prod-web -n ckad-prod -o jsonpath='{.spec.template.spec.containers[0].image}')\" = \"nginx:1.27\""
+        },
+        {
+          "check": "3/3 ready",
+          "cmd": "kubectl --context cluster1 get deploy prod-web -n ckad-prod -o json | jq -e  '.spec.replicas == 3 and .status.readyReplicas == 3'"
+        },
+        {
+          "check": "overlay builds from ../base",
+          "cmd": "grep -Eq '^\\s*-\\s*\\.\\./base\\s*$' ~/kz/prod/kustomization.yaml"
+        },
+        {
+          "check": "base left untouched (still nginx:1.25)",
+          "cmd": "grep -q 'image: nginx:1.25' ~/kz/base/deploy.yaml"
+        }
+      ]
+    },
+    {
+      "id": "output-01",
+      "domain": "Application Observability and Maintenance",
+      "inspired_by": "Mock exam: custom-columns output to a file",
+      "mistake_category": "exact_match",
+      "weight": 3,
+      "target_seconds": 60,
+      "context": "cluster2",
+      "setup": [
+        "kubectl create ns ckad-out",
+        "kubectl run a -n ckad-out --image=nginx:1.27 -l env=prod",
+        "kubectl run b -n ckad-out --image=redis:7 -l env=staging",
+        "kubectl run c -n ckad-out --image=busybox:1.36 -l env=dev -- sleep 3600"
+      ],
+      "task": "Write the names and images of all pods in namespace ckad-out whose label env is prod or staging to ~/images.txt, with headers POD and IMAGE, sorted by pod name.",
+      "checks": [
+        "headers exactly POD and IMAGE",
+        "only pods a and b",
+        "sorted by name"
+      ],
+      "verify": [
+        "cat ~/images.txt"
+      ],
+      "fastest_solution": [
+        "k get pods -n ckad-out -l 'env in (prod,staging)' --sort-by=.metadata.name -o custom-columns=POD:.metadata.name,IMAGE:.spec.containers[0].image > ~/images.txt"
+      ],
+      "traps": [
+        "Set-based selector needs quotes",
+        "Headers are graded literally"
+      ],
+      "docs_search": "kubectl cheat sheet (kubernetes.io/docs/reference/kubectl/quick-reference)",
+      "grade": [
+        {
+          "check": "~/images.txt is exactly POD/IMAGE header + a and b, sorted",
+          "cmd": "diff <(printf 'POD IMAGE\\na nginx:1.27\\nb redis:7\\n') <(awk '{print $1, $2}' ~/images.txt)"
+        }
+      ]
+    },
+    {
+      "id": "multi-01",
+      "domain": "Mixed",
+      "inspired_by": "FAILED pattern: multi-part tasks with a missed sub-step",
+      "mistake_category": "missed_substep",
+      "weight": 9,
+      "target_seconds": 360,
+      "context": "cluster1",
+      "setup": [
+        "kubectl create ns ckad-full"
+      ],
+      "task": "In namespace ckad-full: (1) create a ConfigMap app-cfg with MODE=prod and LEVEL=3; (2) create a deployment checkout with image nginx:1.27, 2 replicas, that loads all keys of app-cfg as environment variables; (3) add a readinessProbe httpGet / on port 80; (4) expose it as a ClusterIP service checkout-svc on port 8080 targeting port 80; (5) also write the ClusterIP of checkout-svc to ~/checkout-ip.txt.",
+      "checks": [
+        "cm app-cfg with MODE, LEVEL",
+        "deploy checkout 2/2 ready, pods get MODE and LEVEL from app-cfg",
+        "readinessProbe httpGet / 80",
+        "svc checkout-svc port 8080 targetPort 80",
+        "~/checkout-ip.txt contains only the ClusterIP"
+      ],
+      "verify": [
+        "k get cm,deploy,svc -n ckad-full",
+        "k exec -n ckad-full deploy/checkout -- env | grep -E 'MODE|LEVEL'",
+        "cat ~/checkout-ip.txt"
+      ],
+      "fastest_solution": [
+        "k create cm app-cfg -n ckad-full --from-literal=MODE=prod --from-literal=LEVEL=3",
+        "k create deploy checkout -n ckad-full --image=nginx:1.27 --replicas=2 --port=80 $do > d.yaml ; under the container add envFrom: [{configMapRef: {name: app-cfg}}] and the readinessProbe ; k apply -f d.yaml",
+        "k expose deploy checkout -n ckad-full --name=checkout-svc --port=8080 --target-port=80",
+        "k get svc checkout-svc -n ckad-full -o jsonpath='{.spec.clusterIP}' > ~/checkout-ip.txt"
+      ],
+      "traps": [
+        "Make a 5-item checklist before typing; tick each against k get",
+        "Step (5) is the 'Also ...' that gets forgotten"
+      ],
+      "docs_search": "-",
+      "grade": [
+        {
+          "check": "(1) configmap app-cfg data exactly MODE=prod, LEVEL=3",
+          "cmd": "kubectl --context cluster1 get cm app-cfg -n ckad-full -o json | jq -e  '.data == {\"MODE\": \"prod\", \"LEVEL\": \"3\"}'"
+        },
+        {
+          "check": "(2) deployment checkout image nginx:1.27, 2/2 ready",
+          "cmd": "kubectl --context cluster1 get deploy checkout -n ckad-full -o json | jq -e  '.spec.template.spec.containers[0].image == \"nginx:1.27\" and .status.readyReplicas == 2'"
+        },
+        {
+          "check": "(2) running pod has MODE=prod",
+          "cmd": "test \"$(kubectl --context cluster1 exec -n ckad-full deploy/checkout -- printenv MODE)\" = \"prod\""
+        },
+        {
+          "check": "(2) running pod has LEVEL=3",
+          "cmd": "test \"$(kubectl --context cluster1 exec -n ckad-full deploy/checkout -- printenv LEVEL)\" = \"3\""
+        },
+        {
+          "check": "(3) readinessProbe httpGet / port 80",
+          "cmd": "kubectl --context cluster1 get deploy checkout -n ckad-full -o json | jq -e  '.spec.template.spec.containers[0].readinessProbe.httpGet | .path == \"/\" and (.port | tostring) == \"80\"'"
+        },
+        {
+          "check": "(4) service checkout-svc ClusterIP port 8080 -> targetPort 80",
+          "cmd": "kubectl --context cluster1 get svc checkout-svc -n ckad-full -o json | jq -e  '.spec.type == \"ClusterIP\" and .spec.ports[0].port == 8080 and (.spec.ports[0].targetPort | tostring) == \"80\"'"
+        },
+        {
+          "check": "(4) service has 2 endpoints",
+          "cmd": "kubectl --context cluster1 get endpointslices -n ckad-full -l kubernetes.io/service-name=checkout-svc -o json | jq -e '[.items[].endpoints[]?] | length == 2'"
+        },
+        {
+          "check": "(5) ~/checkout-ip.txt contains exactly the ClusterIP",
+          "cmd": "test \"$(tr -d '[:space:]' < ~/checkout-ip.txt)\" = \"$(kubectl --context cluster1 get svc checkout-svc -n ckad-full -o jsonpath='{.spec.clusterIP}')\""
+        }
+      ]
+    }
+  ],
+  "speed_drills": [
+    {
+      "prompt": "Pod nginx-pod, image nginx:1.27, label app=web, port 80",
+      "answer": "k run nginx-pod --image=nginx:1.27 -l app=web --port=80"
+    },
+    {
+      "prompt": "Generate YAML for a pod busybox running 'sleep 3600' into pod.yaml without creating it",
+      "answer": "k run busybox --image=busybox --dry-run=client -o yaml -- sleep 3600 > pod.yaml"
+    },
+    {
+      "prompt": "Pod tmp that runs 'env' once and is removed afterwards, show output",
+      "answer": "k run tmp --rm -it --image=busybox --restart=Never -- env"
+    },
+    {
+      "prompt": "Deployment api, image httpd:2.4, 3 replicas, port 80",
+      "answer": "k create deploy api --image=httpd:2.4 --replicas=3 --port=80"
+    },
+    {
+      "prompt": "Scale deployment api to 5",
+      "answer": "k scale deploy api --replicas=5"
+    },
+    {
+      "prompt": "Change image of container httpd in deployment api to httpd:2.4.62",
+      "answer": "k set image deploy/api httpd=httpd:2.4.62"
+    },
+    {
+      "prompt": "Show rollout history of deployment api, then undo to revision 2",
+      "answer": "k rollout history deploy/api ; k rollout undo deploy/api --to-revision=2"
+    },
+    {
+      "prompt": "Restart all pods of deployment api",
+      "answer": "k rollout restart deploy/api"
+    },
+    {
+      "prompt": "Autoscale deployment api between 2 and 6 replicas at 70% CPU",
+      "answer": "k autoscale deploy api --min=2 --max=6 --cpu-percent=70"
+    },
+    {
+      "prompt": "Expose deployment api as service api-svc on port 8080 to container port 80",
+      "answer": "k expose deploy api --name=api-svc --port=8080 --target-port=80"
+    },
+    {
+      "prompt": "Expose pod web as a NodePort service on port 80",
+      "answer": "k expose pod web --type=NodePort --port=80"
+    },
+    {
+      "prompt": "ExternalName service ext-db pointing to db.example.com",
+      "answer": "k create service externalname ext-db --external-name=db.example.com"
+    },
+    {
+      "prompt": "Job hello, image busybox, runs 'echo hi'",
+      "answer": "k create job hello --image=busybox -- /bin/sh -c 'echo hi'"
+    },
+    {
+      "prompt": "Run a Job now from existing CronJob backup",
+      "answer": "k create job backup-manual --from=cronjob/backup"
+    },
+    {
+      "prompt": "CronJob tick every 5 minutes, image busybox, runs 'date'",
+      "answer": "k create cronjob tick --image=busybox --schedule=\"*/5 * * * *\" -- date"
+    },
+    {
+      "prompt": "Cron expression: every day at 02:30",
+      "answer": "30 2 * * *"
+    },
+    {
+      "prompt": "Cron expression: every 2 hours on the hour",
+      "answer": "0 */2 * * *"
+    },
+    {
+      "prompt": "ConfigMap cfg with literals A=1 and B=2",
+      "answer": "k create cm cfg --from-literal=A=1 --from-literal=B=2"
+    },
+    {
+      "prompt": "ConfigMap envcfg from env file app.env (one key per line)",
+      "answer": "k create cm envcfg --from-env-file=app.env"
+    },
+    {
+      "prompt": "ConfigMap files from all files in directory ./conf (one key per file)",
+      "answer": "k create cm files --from-file=./conf/"
+    },
+    {
+      "prompt": "Secret db with user=admin and pass=s3cr3t",
+      "answer": "k create secret generic db --from-literal=user=admin --from-literal=pass=s3cr3t"
+    },
+    {
+      "prompt": "Decode key pass of secret db",
+      "answer": "k get secret db -o jsonpath='{.data.pass}' | base64 -d"
+    },
+    {
+      "prompt": "TLS secret web-tls from tls.crt and tls.key",
+      "answer": "k create secret tls web-tls --cert=tls.crt --key=tls.key"
+    },
+    {
+      "prompt": "Docker registry secret regcred for registry.example.com, user u, password p",
+      "answer": "k create secret docker-registry regcred --docker-server=registry.example.com --docker-username=u --docker-password=p"
+    },
+    {
+      "prompt": "Load all keys of secret db as env vars into deployment api",
+      "answer": "k set env deploy/api --from=secret/db   (NOTE: creates one env entry per key with UPPERCASED names - not envFrom. If the task says keys must stay as-is or says envFrom, edit/patch in envFrom: [{secretRef: {name: db}}])"
+    },
+    {
+      "prompt": "List env vars set on deployment api",
+      "answer": "k set env deploy/api --list"
+    },
+    {
+      "prompt": "Set requests cpu=100m,memory=64Mi and limits cpu=200m,memory=128Mi on deployment api",
+      "answer": "k set resources deploy/api --requests=cpu=100m,memory=64Mi --limits=cpu=200m,memory=128Mi"
+    },
+    {
+      "prompt": "ResourceQuota q1 in ns dev: max 10 pods, requests.memory 1Gi",
+      "answer": "k create quota q1 -n dev --hard=pods=10,requests.memory=1Gi"
+    },
+    {
+      "prompt": "ServiceAccount build-bot in ns ci",
+      "answer": "k create sa build-bot -n ci"
+    },
+    {
+      "prompt": "Role cm-editor allowing get,list,update on configmaps",
+      "answer": "k create role cm-editor --verb=get,list,update --resource=configmaps"
+    },
+    {
+      "prompt": "Bind Role cm-editor to ServiceAccount build-bot in ns ci",
+      "answer": "k create rolebinding cm-editor-rb -n ci --role=cm-editor --serviceaccount=ci:build-bot"
+    },
+    {
+      "prompt": "Can ServiceAccount build-bot in ns ci delete pods there?",
+      "answer": "k auth can-i delete pods -n ci --as=system:serviceaccount:ci:build-bot"
+    },
+    {
+      "prompt": "Make deployment api use ServiceAccount build-bot",
+      "answer": "k set serviceaccount deploy/api build-bot"
+    },
+    {
+      "prompt": "Ingress web-ing: host shop.local, path / prefix to svc web:80, class nginx",
+      "answer": "k create ingress web-ing --class=nginx --rule=\"shop.local/*=web:80\""
+    },
+    {
+      "prompt": "Add label tier=backend to pod api-0; then remove it",
+      "answer": "k label pod api-0 tier=backend ; k label pod api-0 tier-"
+    },
+    {
+      "prompt": "Annotate deployment api with owner=team-a",
+      "answer": "k annotate deploy api owner=team-a"
+    },
+    {
+      "prompt": "List pods with label env=prod OR env=staging in all namespaces",
+      "answer": "k get pods -A -l 'env in (prod,staging)'"
+    },
+    {
+      "prompt": "Name and QoS class of all pods in ns x into ~/qos.txt with headers NAME and QOS",
+      "answer": "k get pods -n x -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass > ~/qos.txt"
+    },
+    {
+      "prompt": "All pod names in ns x, one per line, no 'pod/' prefix",
+      "answer": "k get pods -n x -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}'  (or: k get pods -n x --no-headers -o custom-columns=:.metadata.name)"
+    },
+    {
+      "prompt": "Events in ns x sorted by time",
+      "answer": "k get events -n x --sort-by=.lastTimestamp"
+    },
+    {
+      "prompt": "Logs of container sidecar in pod web, previous crashed instance",
+      "answer": "k logs web -c sidecar --previous"
+    },
+    {
+      "prompt": "Follow logs of all pods of deployment api",
+      "answer": "k logs -f deploy/api --all-containers   (or: k logs -f -l app=api)"
+    },
+    {
+      "prompt": "Pod in ns kube-system using most memory",
+      "answer": "k top pod -n kube-system --sort-by=memory"
+    },
+    {
+      "prompt": "Delete pod web immediately",
+      "answer": "k delete pod web --force --grace-period=0"
+    },
+    {
+      "prompt": "Replace a running pod from edited file pod.yaml (field cannot be changed in place)",
+      "answer": "k replace --force -f pod.yaml"
+    },
+    {
+      "prompt": "Switch the current context's default namespace to dev",
+      "answer": "k config set-context --current --namespace=dev"
+    },
+    {
+      "prompt": "Which context am I on?",
+      "answer": "k config current-context"
+    },
+    {
+      "prompt": "Find the apiVersion and kind for a CRD about 'widgets'",
+      "answer": "k api-resources | grep -i widget"
+    },
+    {
+      "prompt": "Show all fields of a pod's livenessProbe",
+      "answer": "k explain pod.spec.containers.livenessProbe   (add --recursive for the full tree)"
+    },
+    {
+      "prompt": "Test from inside the cluster that service web answers on port 80",
+      "answer": "k run t --rm -i --image=curlimages/curl --restart=Never -- curl -m 3 web"
+    },
+    {
+      "prompt": "Show which IPs service web sends traffic to",
+      "answer": "k get endpointslices -l kubernetes.io/service-name=web   (or: k describe svc web | grep Endpoints)"
+    },
+    {
+      "prompt": "Install chart ./mychart as release shop in ns store (create ns)",
+      "answer": "helm install shop ./mychart -n store --create-namespace"
+    },
+    {
+      "prompt": "Upgrade release shop with replicaCount=4 without editing values",
+      "answer": "helm upgrade shop ./mychart -n store --set replicaCount=4"
+    },
+    {
+      "prompt": "List all helm releases in all namespaces, including failed ones",
+      "answer": "helm ls -A -a"
+    },
+    {
+      "prompt": "Show default values of chart bitnami/nginx",
+      "answer": "helm show values bitnami/nginx"
+    },
+    {
+      "prompt": "Render a chart to YAML without installing",
+      "answer": "helm template shop ./mychart"
+    },
+    {
+      "prompt": "Apply a kustomize overlay in ./overlays/prod",
+      "answer": "k apply -k ./overlays/prod"
+    },
+    {
+      "prompt": "Build ./app as image app:2.0 and save it to app.tar",
+      "answer": "docker build -t app:2.0 ./app && docker save app:2.0 -o app.tar"
+    }
+  ],
+  "docs_fast_lookup": {
+    "note": "kubernetes.io/docs is allowed in the exam. Search these titles instead of browsing.",
+    "pages": {
+      "probes": "Configure Liveness, Readiness and Startup Probes",
+      "configmap volume / env": "Configure a Pod to Use a ConfigMap",
+      "secret volume / env": "Secrets (section 'Using Secrets')",
+      "networkpolicy": "Network Policies",
+      "security context": "Configure a Security Context for a Pod or Container",
+      "pvc in pod": "Configure a Pod to Use a PersistentVolume for Storage",
+      "sidecar / shared volume": "Communicate Between Containers in the Same Pod Using a Shared Volume",
+      "services without selectors": "Service (section 'Services without selectors')",
+      "qos": "Pod Quality of Service Classes",
+      "limitrange": "Limit Ranges",
+      "api migration": "Deprecated API Migration Guide",
+      "kubectl quick reference": "kubectl Quick Reference (cheat sheet)"
+    },
+    "faster_than_docs": [
+      "k <verb> -h  -> the Examples section usually contains the exact command",
+      "k explain <resource>.<path>  -> exact field names and types",
+      "k <create ...> $do  -> skeleton YAML with correct indentation"
+    ]
+  },
+  "grading": {
+    "philosophy": "Graders are deliberately as harsh as the real exam grader: exact names, exact values, exact case, the question's cluster pinned with --context, and functional tests (curl/exec/can-i) where the real grader would run them. A question scores only the checks that print PASS.",
+    "runner": "ckad-grade.sh next to this file: ./ckad-grade.sh <question-id>  (or ./ckad-grade.sh all). Requires bash, kubectl, jq (and helm/docker for those questions).",
+    "manual": "Without the runner: run each grade[].cmd in bash; exit code 0 = PASS, anything else = FAIL.",
+    "variants_rule": "If the tutor changes names/values for a variant, the tutor MUST rewrite that question's grade commands with the new names and hand them to the learner before grading. Never grade a variant with the original commands."
+  }
+}
