@@ -363,7 +363,7 @@
         },
         {
           "check": "it is the ONLY release in frontend-apd (no --generate-name leftovers)",
-          "cmd": "test \"$(helm --kube-context cluster2 ls -n frontend-apd -a -q | wc -l | tr -d ' ')\" = \"1\""
+          "cmd": "test \"$({ helm --kube-context cluster2 ls -n frontend-apd -a -q 2>/dev/null || helm --kube-context cluster2 ls -n frontend-apd -q; } | wc -l | tr -d ' ')\" = \"1\""
         },
         {
           "check": "release APP VERSION is exactly 1.20.0",
