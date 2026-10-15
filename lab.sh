@@ -11,9 +11,12 @@
 #   ./lab.sh hint [id]          where to look in the docs + the traps
 #   ./lab.sh solution [id]      fastest solution and how to verify it
 #   ./lab.sh task [id]          show the task again
+#   ./lab.sh pin                keep the current task pinned in a tmux pane above your shell
+#   ./lab.sh unpin              close the pinned pane
 #   ./lab.sh drill [n]          n speed drills (default 10): type the command, then compare
 #   ./lab.sh list               list question ids
 set -euo pipefail
+CALLER_DIR=$PWD
 cd "$(dirname "$0")"
 
 JSON=ckad-practice.json
@@ -307,6 +310,67 @@ random_question() {
   setup "$id"
 }
 
+pinned() {
+  [ -f "$STATE/pin-pane" ] &&
+    tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -xF "$(cat "$STATE/pin-pane")" >/dev/null
+}
+
+pin() {
+  need tmux
+  if [ -z "${TMUX:-}" ]; then
+    exec tmux new-session -A -s ckad -c "$CALLER_DIR" "'$PWD/lab.sh' pin; exec \"\${SHELL:-bash}\""
+  fi
+  if pinned; then
+    return
+  fi
+  mkdir -p "$STATE"
+  tmux split-window -v -b -d -l 12 -c "$PWD" -P -F '#{pane_id}' "'$PWD/lab.sh' pinned-pane" > "$STATE/pin-pane"
+}
+
+unpin() {
+  if pinned; then
+    tmux kill-pane -t "$(cat "$STATE/pin-pane")"
+  fi
+  rm -f "$STATE/pin-pane"
+}
+
+# Follows ~/.ckad/current, so './lab.sh random' in the shell below swaps the task shown here.
+pinned_pane() {
+  local out last="" line rows max
+  tput civis
+  while true; do
+    # task's output is captured, so tput cannot ask the terminal for its width
+    export COLUMNS
+    COLUMNS=$(tmux display -p -t "$TMUX_PANE" '#{pane_width}')
+    if [ -f "$STATE/current" ]; then
+      out=$(task "$(cat "$STATE/current")" 2>&1) || true
+    else
+      out=$'\n  no current question - ./lab.sh random'
+    fi
+    if [ "$out" != "$last" ]; then
+      last=$out
+      clear
+      printf '%s' "$out"
+      rows=0
+      while IFS= read -r line; do
+        rows=$((rows + (${#line} > COLUMNS ? (${#line} + COLUMNS - 1) / COLUMNS : 1)))
+      done < <(sed $'s/\e\\[[0-9;]*m//g' <<<"$out")
+      max=$(($(tmux display -p -t "$TMUX_PANE" '#{window_height}') / 2))
+      tmux resize-pane -t "$TMUX_PANE" -y "$((rows < max ? rows : max))"
+    fi
+    sleep 1
+  done
+}
+
+autopin() {
+  if [ -n "${TMUX:-}" ]; then
+    pin
+  else
+    echo "  ${DIM}./lab.sh pin keeps the task on screen while you work${RESET}"
+    echo
+  fi
+}
+
 list() {
   need jq
   jq -r '.scenario_questions[] | "\(.id)\t\(.context)\t\(.target_seconds)s\t\(.domain)"' "$JSON" | column -t -s $'\t'
@@ -316,19 +380,22 @@ case "${1:-}" in
   up) up ;;
   down) down ;;
   reset) down; up ;;
-  setup) setup "${2:?usage: ./lab.sh setup <question-id>}" ;;
+  setup) setup "${2:?usage: ./lab.sh setup <question-id>}"; autopin ;;
   task | grade | hint | solution)
     # assigned first: set -e does not stop on a failing $(...) used as an argument
     id=$(current_id "${2:-}")
     case $1 in
-      task) task "$id" ;;
+      task) task "$id"; autopin ;;
       grade) exec ./ckad-grade.sh "$id" ;;
       hint) hint "$id" ;;
       solution) solution "$id" ;;
     esac
     ;;
   drill) drill "${2:-10}" ;;
-  random) random_question "${2:-}" ;;
+  random) random_question "${2:-}"; autopin ;;
+  pin) pin ;;
+  unpin) unpin ;;
+  pinned-pane) pinned_pane ;;
   list) list ;;
-  *) sed -n '2,16p' "$0"; exit 1 ;;
+  *) sed -n '2,18p' "$0"; exit 1 ;;
 esac

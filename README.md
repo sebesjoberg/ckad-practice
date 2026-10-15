@@ -8,6 +8,7 @@ Exam-style CKAD scenarios on local kind clusters, graded as strictly as the real
 ./lab.sh grade           # grade it, with your time against the target
 ./lab.sh hint            # stuck: where to look + traps
 ./lab.sh solution        # fastest solution + how to verify
+./lab.sh pin             # keep the task pinned in a tmux pane above your shell (./lab.sh unpin closes it)
 ./lab.sh drill           # 10 rapid-fire command drills
 ```
 
