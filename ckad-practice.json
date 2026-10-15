@@ -627,8 +627,7 @@
       "checks": [
         "type ExternalName",
         "externalName db.example.com",
-        "port 5432",
-        "no selector"
+        "port 5432"
       ],
       "verify": [
         "k get svc ckad12-service"
@@ -637,7 +636,8 @@
         "k create service externalname ckad12-service --external-name=db.example.com --tcp=5432:5432"
       ],
       "traps": [
-        "ExternalName has no ClusterIP and no endpoints - it is only a DNS CNAME"
+        "ExternalName has no ClusterIP and no endpoints - it is only a DNS CNAME",
+        "'k create service externalname' adds selector app=<name> - harmless, ExternalName ignores selectors"
       ],
       "docs_search": "k create service externalname -h",
       "grade": [
@@ -656,10 +656,6 @@
         {
           "check": "port 5432",
           "cmd": "test \"$(kubectl --context cluster1 get svc ckad12-service -n default -o jsonpath='{.spec.ports[0].port}')\" = \"5432\""
-        },
-        {
-          "check": "no selector",
-          "cmd": "kubectl --context cluster1 get svc ckad12-service -n default -o json | jq -e  '.spec.selector == null'"
         }
       ]
     },
