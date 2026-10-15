@@ -203,7 +203,11 @@ task() {
   done < <(jq -r '.task | gsub(": \\((?<n>[0-9]+)\\) "; ":\n(\(.n)) ") | gsub("; \\((?<n>[0-9]+)\\) "; "\n(\(.n)) ")' <<<"$q")
 
   echo
-  echo "  ${DIM}done?  ./lab.sh grade     stuck?  ./lab.sh hint  ·  ./lab.sh solution"
+  if [ -n "${LAB_SHELL:-}" ]; then
+    echo "  ${DIM}done?  grade     stuck?  hint  ·  solution     next?  random"
+  else
+    echo "  ${DIM}done?  ./lab.sh grade     stuck?  ./lab.sh hint  ·  ./lab.sh solution"
+  fi
   echo "  your context now: $(kubectl config current-context 2>/dev/null)${RESET}"
   echo
 }
@@ -325,7 +329,8 @@ pin() {
     return
   fi
   mkdir -p "$STATE"
-  tmux split-window -v -b -d -l 12 -c "$PWD" -P -F '#{pane_id}' "'$PWD/lab.sh' pinned-pane" > "$STATE/pin-pane"
+  tmux split-window -v -b -d -l 12 -c "$PWD" -e "LAB_SHELL=${LAB_SHELL:-}" -P -F '#{pane_id}' \
+    "'$PWD/lab.sh' pinned-pane" > "$STATE/pin-pane"
 }
 
 unpin() {
