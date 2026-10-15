@@ -6,8 +6,12 @@
 #   ./lab.sh reset              down + up
 #   ./lab.sh random [filter]    pick a question you have not had yet, prepare it, show the task
 #                               (filter matches id or domain, e.g. netpol, helm, security)
-#   ./lab.sh setup <id>         prepare the scenario for one question and show the task
-#   ./lab.sh task <id>          show a question's task again
+#   ./lab.sh setup <id>         prepare a specific question and show the task
+#   ./lab.sh grade [id]         grade the current (or given) question
+#   ./lab.sh hint [id]          where to look in the docs + the traps
+#   ./lab.sh solution [id]      fastest solution and how to verify it
+#   ./lab.sh task [id]          show the task again
+#   ./lab.sh drill [n]          n speed drills (default 10): type the command, then compare
 #   ./lab.sh list               list question ids
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -26,6 +30,12 @@ jq() {
   return "${PIPESTATUS[0]}"
 }
 export -f jq
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  BOLD=$'\e[1m' DIM=$'\e[2m' CYAN=$'\e[36m' RED=$'\e[31m' RESET=$'\e[0m'
+else
+  BOLD="" DIM="" CYAN="" RED="" RESET=""
+fi
 
 need() {
   for tool in "$@"; do
@@ -108,39 +118,170 @@ setup() {
     KUBECONFIG="$kubeconfig" kubectl config use-context "$ctx" >/dev/null
   fi
 
-  echo "== setup $id (on $ctx)"
+  echo "${DIM}preparing $id on $ctx ...${RESET}"
   while IFS= read -r entry; do
     local cmd
     cmd=$(jq -r . <<<"$entry")
     case "$cmd" in
+      "(tutor"* | "(the tutor"*)
+        continue
+        ;;
       "("*)
-        echo "   note: $cmd"
+        echo "${DIM}  │ $cmd${RESET}"
         continue
         ;;
     esac
     # Output only, not the commands: some setups plant bugs the learner has to find.
-    if ! KUBECONFIG="$kubeconfig" bash -o pipefail -c "$cmd" </dev/null 2>&1 | sed 's/^/   /'; then
-      echo "   ! a setup step failed (already set up? './lab.sh reset' starts clean)"
+    local out status=0
+    out=$(KUBECONFIG="$kubeconfig" bash -o pipefail -c "$cmd" </dev/null 2>&1) || status=$?
+    if [ "$status" -ne 0 ] && ! grep -v AlreadyExists <<<"$out" | grep -q .; then
+      echo "${DIM}  │ (already set up)${RESET}"
+      continue
+    fi
+    if [ -n "$out" ]; then
+      sed "s/^/${DIM}  │ /; s/\$/${RESET}/" <<<"$out"
+    fi
+    if [ "$status" -ne 0 ]; then
+      echo "${RED}  ! a setup step failed - './lab.sh reset' starts from clean clusters${RESET}"
     fi
   done < <(jq -c --arg id "$id" '.scenario_questions[] | select(.id == $id) | .setup[]' "$JSON")
   rm -f "$kubeconfig"
 
   mkdir -p "$STATE"
   date +%s > "$STATE/start-$id"
+  echo "$id" > "$STATE/current"
   echo
   task "$id"
-  echo
-  echo "(your current context is: $(kubectl config current-context))   grade with: ./ckad-grade.sh $id"
 }
 
 task() {
   need jq
-  local id=$1
-  jq -r --arg id "$id" '.scenario_questions[] | select(.id == $id)
-    | "---- \(.id) | \(.domain) | weight \(.weight) | target \(.target_seconds)s ----",
-      "",
-      (if .context == "local" then empty else ("kubectl config use-context \(.context)", "") end),
-      .task' "$JSON"
+  local id=$1 q width left right gap line first rest
+  q=$(jq -c --arg id "$id" '.scenario_questions[] | select(.id == $id)' "$JSON")
+  if [ -z "$q" ]; then
+    echo "unknown question id: $id (see ./lab.sh list)"
+    exit 1
+  fi
+
+  width=$(tput cols 2>/dev/null || echo 80)
+  if [ "$width" -gt 96 ]; then
+    width=96
+  fi
+  left=$(jq -r '"\(.id)  ·  \(.domain)"' <<<"$q")
+  right=$(jq -r '"weight \(.weight)  ·  target \(.target_seconds / 60 | floor):\(.target_seconds % 60 | tostring | if length < 2 then "0" + . else . end)"' <<<"$q")
+  gap=$((width - ${#left} - ${#right} - 2))
+  if [ "$gap" -lt 2 ]; then
+    gap=2
+  fi
+
+  hr "$width"
+  printf ' %s%s%s%*s%s\n' "$BOLD" "$left" "$RESET" "$gap" "" "$right"
+  hr "$width"
+  echo
+
+  if [ "$(jq -r .context <<<"$q")" != local ]; then
+    echo "  ${BOLD}${CYAN}kubectl config use-context $(jq -r .context <<<"$q")${RESET}"
+    echo
+  fi
+
+  # "(1) ... (2) ..." steps go on their own lines with a hanging indent.
+  while IFS= read -r line; do
+    if [[ $line =~ ^\([0-9]+\) ]]; then
+      first="    " rest="        "
+    else
+      first="  " rest="  "
+    fi
+    if [ -z "$line" ]; then
+      echo
+      continue
+    fi
+    fold -s -w $((width - ${#rest})) <<<"$line" | sed "1s/^/$first/; 2,\$s/^/$rest/"
+  done < <(jq -r '.task | gsub(": \\((?<n>[0-9]+)\\) "; ":\n(\(.n)) ") | gsub("; \\((?<n>[0-9]+)\\) "; "\n(\(.n)) ")' <<<"$q")
+
+  echo
+  echo "  ${DIM}done?  ./lab.sh grade     stuck?  ./lab.sh hint  ·  ./lab.sh solution"
+  echo "  your context now: $(kubectl config current-context 2>/dev/null)${RESET}"
+  echo
+}
+
+current_id() {
+  local id=${1:-}
+  if [ -z "$id" ] && [ -f "$STATE/current" ]; then
+    id=$(cat "$STATE/current")
+  fi
+  if [ -z "$id" ]; then
+    echo "no current question - start one with ./lab.sh random" >&2
+    exit 1
+  fi
+  echo "$id"
+}
+
+# Prints one section of a question: a heading, then each array entry as a block.
+section() {
+  local q=$1 field=$2 title=$3 style=$4 entry
+  if [ "$(jq -r --arg f "$field" '.[$f] | if type == "array" then length elif . == "-" or . == null then 0 else 1 end' <<<"$q")" -eq 0 ]; then
+    return
+  fi
+  echo "  ${BOLD}$title${RESET}"
+  while IFS= read -r entry; do
+    case $style in
+      cmd) jq -r . <<<"$entry" | sed "1s/^/    \$ ${CYAN}/; 2,\$s/^/      ${CYAN}/; s/\$/${RESET}/" ;;
+      bullet) jq -r . <<<"$entry" | fold -s -w 88 | sed "1s/^/    • /; 2,\$s/^/      /" ;;
+    esac
+  done < <(jq -c --arg f "$field" '.[$f] | if type == "array" then .[] else . end' <<<"$q")
+  echo
+}
+
+question() {
+  jq -c --arg id "$1" '.scenario_questions[] | select(.id == $id)' "$JSON"
+}
+
+hint() {
+  need jq
+  local q
+  q=$(question "$1")
+  echo
+  section "$q" docs_search "Where to look" bullet
+  section "$q" traps "Watch out for" bullet
+}
+
+solution() {
+  need jq
+  local q
+  q=$(question "$1")
+  echo
+  section "$q" fastest_solution "Fastest solution" cmd
+  section "$q" verify "Verify" cmd
+  section "$q" traps "Traps" bullet
+}
+
+drill() {
+  need jq shuf
+  local n=${1:-10} entry prompt answer typed i=0 right=0 verdict
+  echo "${DIM}Type the command from memory and press Enter (empty = skip). Then judge yourself: y/n.${RESET}"
+  while IFS= read -r entry <&3; do
+    i=$((i + 1))
+    prompt=$(jq -r .prompt <<<"$entry")
+    answer=$(jq -r .answer <<<"$entry")
+    echo
+    echo "${BOLD}$i/$n${RESET}  $prompt"
+    read -r -p "  \$ " typed
+    echo "  ${CYAN}$answer${RESET}"
+    read -r -p "  right? [y/N] " verdict
+    if [ "$verdict" = y ] || [ "$verdict" = Y ]; then
+      right=$((right + 1))
+    fi
+  done 3< <(jq -c '.speed_drills[]' "$JSON" | shuf -n "$n")
+  echo
+  echo "${BOLD}$right/$i right${RESET}"
+}
+
+hr() {
+  local i out=""
+  for ((i = 0; i < $1; i++)); do
+    out+="━"
+  done
+  echo "${CYAN}${out}${RESET}"
 }
 
 random_question() {
@@ -176,8 +317,18 @@ case "${1:-}" in
   down) down ;;
   reset) down; up ;;
   setup) setup "${2:?usage: ./lab.sh setup <question-id>}" ;;
-  task) task "${2:?usage: ./lab.sh task <question-id>}" ;;
+  task | grade | hint | solution)
+    # assigned first: set -e does not stop on a failing $(...) used as an argument
+    id=$(current_id "${2:-}")
+    case $1 in
+      task) task "$id" ;;
+      grade) exec ./ckad-grade.sh "$id" ;;
+      hint) hint "$id" ;;
+      solution) solution "$id" ;;
+    esac
+    ;;
+  drill) drill "${2:-10}" ;;
   random) random_question "${2:-}" ;;
   list) list ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  *) sed -n '2,16p' "$0"; exit 1 ;;
 esac

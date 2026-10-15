@@ -15,6 +15,12 @@ jq() {
 }
 export -f jq
 
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  BOLD=$'\e[1m' DIM=$'\e[2m' GREEN=$'\e[32m' RED=$'\e[31m' RESET=$'\e[0m'
+else
+  BOLD="" DIM="" GREEN="" RED="" RESET=""
+fi
+
 limit=""
 if command -v timeout >/dev/null; then
   limit="timeout 60"
@@ -33,7 +39,7 @@ for q in $ids; do
   pass=0
   total=0
   now=$(date +%s)
-  echo "== $q"
+  echo "${BOLD}$q${RESET}"
   while IFS= read -r g; do
     name=$(jq -r .check <<<"$g")
     cmd=$(jq -r .cmd <<<"$g")
@@ -41,16 +47,32 @@ for q in $ids; do
     # pipefail: a failing kubectl must fail the check even when jq/grep after it succeeds.
     # stdin from /dev/null: kubectl run -i / exec would otherwise swallow the loop's input.
     if $limit bash -o pipefail -c "$cmd" </dev/null >/dev/null 2>&1; then
-      echo "  PASS  $name"
+      echo "  ${GREEN}✓ PASS${RESET}  $name"
       pass=$((pass + 1))
     else
-      echo "  FAIL  $name"
+      echo "  ${RED}✗ FAIL${RESET}  $name"
     fi
   done < <(jq -c --arg id "$q" '.scenario_questions[] | select(.id == $id) | .grade[]' "$json")
-  echo "  score: $pass/$total"
+  if [ "$pass" -eq "$total" ]; then
+    colour=$GREEN
+  else
+    colour=$RED
+  fi
+  echo
+  echo "  ${BOLD}score  ${colour}$pass/$total${RESET}"
   # Written by lab.sh setup/random when the task was handed out.
   if [ -f ~/.ckad/start-"$q" ]; then
     target=$(jq -r --arg id "$q" '.scenario_questions[] | select(.id == $id) | .target_seconds' "$json")
-    echo "  time:  $((now - $(cat ~/.ckad/start-"$q")))s (target ${target}s)"
+    took=$((now - $(cat ~/.ckad/start-"$q")))
+    if [ "$took" -le "$target" ]; then
+      colour=$GREEN
+    else
+      colour=$RED
+    fi
+    echo "  ${BOLD}time   ${colour}$((took / 60))m$((took % 60))s${RESET} ${DIM}(target $((target / 60))m$((target % 60))s)${RESET}"
   fi
+  if [ "$pass" -ne "$total" ]; then
+    echo "  ${DIM}see how: ./lab.sh solution $q${RESET}"
+  fi
+  echo
 done
