@@ -4,12 +4,16 @@
 #   ./lab.sh up                 create cluster1 + cluster2 (kind)
 #   ./lab.sh down               delete both clusters and their contexts
 #   ./lab.sh reset              down + up
-#   ./lab.sh setup <id>         prepare the scenario for one question
+#   ./lab.sh random [filter]    pick a question you have not had yet, prepare it, show the task
+#                               (filter matches id or domain, e.g. netpol, helm, security)
+#   ./lab.sh setup <id>         prepare the scenario for one question and show the task
+#   ./lab.sh task <id>          show a question's task again
 #   ./lab.sh list               list question ids
 set -euo pipefail
 cd "$(dirname "$0")"
 
 JSON=ckad-practice.json
+STATE=~/.ckad
 CALICO_VERSION=v3.28.2
 METRICS_SERVER_VERSION=v0.7.2
 
@@ -71,7 +75,7 @@ up() {
   kubectl config use-context cluster1 >/dev/null
   echo
   echo "Ready. Contexts: cluster1, cluster2 (current: cluster1)."
-  echo "Next: ./lab.sh setup <question-id>   then solve it   then ./ckad-grade.sh <question-id>"
+  echo "Next: ./lab.sh random   then solve it   then ./ckad-grade.sh <question-id>"
 }
 
 down() {
@@ -95,7 +99,6 @@ setup() {
   # Run the setup against the question's cluster through a private kubeconfig copy,
   # so the learner's current context is left alone - switching it is part of the drill.
   kubeconfig=$(mktemp)
-  trap 'rm -f "$kubeconfig"' RETURN
   if command -v cygpath >/dev/null; then
     # kubectl.exe cannot open MSYS paths like /tmp/...
     kubeconfig=$(cygpath -m "$kubeconfig")
@@ -120,9 +123,47 @@ setup() {
       echo "   ! a setup step failed (already set up? './lab.sh reset' starts clean)"
     fi
   done < <(jq -c --arg id "$id" '.scenario_questions[] | select(.id == $id) | .setup[]' "$JSON")
+  rm -f "$kubeconfig"
 
+  mkdir -p "$STATE"
+  date +%s > "$STATE/start-$id"
   echo
-  echo "Task for $id is ready. Your current context is still: $(kubectl config current-context)"
+  task "$id"
+  echo
+  echo "(your current context is: $(kubectl config current-context))   grade with: ./ckad-grade.sh $id"
+}
+
+task() {
+  need jq
+  local id=$1
+  jq -r --arg id "$id" '.scenario_questions[] | select(.id == $id)
+    | "---- \(.id) | \(.domain) | weight \(.weight) | target \(.target_seconds)s ----",
+      "",
+      (if .context == "local" then empty else ("kubectl config use-context \(.context)", "") end),
+      .task' "$JSON"
+}
+
+random_question() {
+  need jq shuf
+  local filter=${1:-} candidates unseen id
+  candidates=$(jq -r --arg f "$filter" '.scenario_questions[]
+    | select($f == "" or ((.id + " " + .domain) | ascii_downcase | contains($f | ascii_downcase))) | .id' "$JSON")
+  if [ -z "$candidates" ]; then
+    echo "no question matches '$filter' (see ./lab.sh list)"
+    exit 1
+  fi
+  mkdir -p "$STATE"
+  touch "$STATE/seen"
+  unseen=$(grep -vxF -f "$STATE/seen" <<<"$candidates" || true)
+  if [ -z "$unseen" ]; then
+    echo "(you have had every matching question - starting the round again)"
+    grep -vxF -f <(echo "$candidates") "$STATE/seen" > "$STATE/seen.tmp" || true
+    mv "$STATE/seen.tmp" "$STATE/seen"
+    unseen=$candidates
+  fi
+  id=$(shuf -n 1 <<<"$unseen")
+  echo "$id" >> "$STATE/seen"
+  setup "$id"
 }
 
 list() {
@@ -135,6 +176,8 @@ case "${1:-}" in
   down) down ;;
   reset) down; up ;;
   setup) setup "${2:?usage: ./lab.sh setup <question-id>}" ;;
+  task) task "${2:?usage: ./lab.sh task <question-id>}" ;;
+  random) random_question "${2:-}" ;;
   list) list ;;
-  *) sed -n '2,9p' "$0"; exit 1 ;;
+  *) sed -n '2,12p' "$0"; exit 1 ;;
 esac

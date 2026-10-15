@@ -32,6 +32,7 @@ for q in $ids; do
   fi
   pass=0
   total=0
+  now=$(date +%s)
   echo "== $q"
   while IFS= read -r g; do
     name=$(jq -r .check <<<"$g")
@@ -47,4 +48,9 @@ for q in $ids; do
     fi
   done < <(jq -c --arg id "$q" '.scenario_questions[] | select(.id == $id) | .grade[]' "$json")
   echo "  score: $pass/$total"
+  # Written by lab.sh setup/random when the task was handed out.
+  if [ -f ~/.ckad/start-"$q" ]; then
+    target=$(jq -r --arg id "$q" '.scenario_questions[] | select(.id == $id) | .target_seconds' "$json")
+    echo "  time:  $((now - $(cat ~/.ckad/start-"$q")))s (target ${target}s)"
+  fi
 done

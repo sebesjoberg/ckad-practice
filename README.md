@@ -4,8 +4,8 @@ Exam-style CKAD scenarios on local kind clusters, graded as strictly as the real
 
 ```bash
 ./lab.sh up              # two clusters: cluster1, cluster2
-./lab.sh setup cron-01   # prepare a question
-./ckad-grade.sh cron-01  # grade it
+./lab.sh random          # random unseen question, prepared, task shown (filter: ./lab.sh random netpol)
+./ckad-grade.sh <id>     # grade it, incl. time vs target
 ```
 
 Needs docker, kind, kubectl, jq, helm and bash. WSL works best. In Git Bash, run `export MSYS_NO_PATHCONV=1`
