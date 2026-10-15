@@ -11,7 +11,8 @@
 #   ./lab.sh hint [id]          where to look in the docs + the traps
 #   ./lab.sh solution [id]      fastest solution and how to verify it
 #   ./lab.sh task [id]          show the task again
-#   ./lab.sh pin                keep the current task pinned in a tmux pane above your shell
+#   ./lab.sh pin                keep the current task pinned in a tmux pane above your shell;
+#                               in that shell the commands work without ./lab.sh (random, grade, ...)
 #   ./lab.sh unpin              close the pinned pane
 #   ./lab.sh drill [n]          n speed drills (default 10): type the command, then compare
 #   ./lab.sh list               list question ids
@@ -318,7 +319,7 @@ pinned() {
 pin() {
   need tmux
   if [ -z "${TMUX:-}" ]; then
-    exec tmux new-session -A -s ckad -c "$CALLER_DIR" "'$PWD/lab.sh' pin; exec \"\${SHELL:-bash}\""
+    exec tmux new-session -A -s ckad -c "$CALLER_DIR" "'$PWD/lab.sh' pin; exec bash --rcfile '$PWD/lab.bashrc'"
   fi
   if pinned; then
     return
@@ -397,5 +398,5 @@ case "${1:-}" in
   unpin) unpin ;;
   pinned-pane) pinned_pane ;;
   list) list ;;
-  *) sed -n '2,18p' "$0"; exit 1 ;;
+  *) sed -n '2,19p' "$0"; exit 1 ;;
 esac
